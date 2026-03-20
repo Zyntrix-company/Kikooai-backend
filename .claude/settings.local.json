@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(mkdir -p src/routes src/controllers src/services src/jobs src/middleware src/db src/utils src/migrations src/seeds src/tests)",
+      "Bash(touch src/routes/.gitkeep src/controllers/.gitkeep src/services/.gitkeep src/jobs/.gitkeep src/migrations/.gitkeep src/seeds/.gitkeep src/tests/.gitkeep)",
+      "Bash(timeout 5 node src/index.js)",
+      "Bash(npm uninstall:*)",
+      "Bash(node src/db/migrate.js)",
+      "Bash(node src/seeds/exercises.js)",
+      "Bash(pkill -f \"node src/index.js\")"
+    ]
+  }
+}

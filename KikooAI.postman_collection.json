@@ -1,0 +1,469 @@
+{
+  "info": {
+    "name": "KikooAI Backend",
+    "description": "Complete API collection for the KikooAI English learning platform backend.\n\n**Setup:**\n1. Set `baseUrl` variable to `http://localhost:3000`\n2. Run **Signup** or **Login** — the collection auto-saves your access token and refresh token.\n3. All authenticated routes will use the saved token automatically.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl",      "value": "http://localhost:3000", "type": "string" },
+    { "key": "accessToken",  "value": "",                      "type": "string" },
+    { "key": "refreshToken", "value": "",                      "type": "string" },
+    { "key": "seedId",       "value": "",                      "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/healthz",
+              "host": ["{{baseUrl}}"],
+              "path": ["healthz"]
+            },
+            "description": "Checks server status and database connectivity."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"db\": \"connected\",\n  \"ts\": \"2026-03-20T08:00:00.000Z\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Signup",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success) {",
+                  "  pm.collectionVariables.set('accessToken', json.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+                  "  pm.test('Signup successful', () => pm.response.to.have.status(201));",
+                  "  pm.test('No password_hash exposed', () => {",
+                  "    pm.expect(JSON.stringify(json)).to.not.include('password_hash');",
+                  "  });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@kikoo.ai\",\n  \"password\": \"password123\",\n  \"username\": \"kikoouser\",\n  \"fullname\": \"Kikoo User\",\n  \"role\": \"student\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/signup",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "signup"]
+            },
+            "description": "Register a new user. Role must be one of: `student`, `job_seeker`, `professional`.\n\nAuto-saves `accessToken` and `refreshToken` to collection variables."
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "status": "Created",
+              "code": 201,
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"user\": {\n      \"id\": \"uuid\",\n      \"email\": \"user@kikoo.ai\",\n      \"username\": \"kikoouser\",\n      \"fullname\": \"Kikoo User\",\n      \"role\": \"student\",\n      \"is_banned\": false,\n      \"is_admin\": false,\n      \"created_at\": \"2026-03-20T08:00:00.000Z\"\n    },\n    \"accessToken\": \"eyJ...\",\n    \"refreshToken\": \"uuid-v4\"\n  }\n}"
+            },
+            {
+              "name": "409 Conflict — Duplicate user",
+              "status": "Conflict",
+              "code": 409,
+              "body": "{\n  \"success\": false,\n  \"error\": \"Email or username already in use\",\n  \"code\": \"DUPLICATE_USER\"\n}"
+            },
+            {
+              "name": "400 Validation Error",
+              "status": "Bad Request",
+              "code": 400,
+              "body": "{\n  \"success\": false,\n  \"error\": \"\\\"password\\\" length must be at least 8 characters long\",\n  \"code\": \"VALIDATION_ERROR\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success) {",
+                  "  pm.collectionVariables.set('accessToken', json.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+                  "  pm.test('Login successful', () => pm.response.to.have.status(200));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@kikoo.ai\",\n  \"password\": \"password123\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "login"]
+            },
+            "description": "Authenticate an existing user. Auto-saves tokens to collection variables."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"user\": { \"id\": \"uuid\", \"email\": \"user@kikoo.ai\" },\n    \"accessToken\": \"eyJ...\",\n    \"refreshToken\": \"uuid-v4\"\n  }\n}"
+            },
+            {
+              "name": "401 Invalid credentials",
+              "status": "Unauthorized",
+              "code": 401,
+              "body": "{\n  \"success\": false,\n  \"error\": \"Invalid credentials\",\n  \"code\": \"INVALID_CREDENTIALS\"\n}"
+            },
+            {
+              "name": "403 Account banned",
+              "status": "Forbidden",
+              "code": 403,
+              "body": "{\n  \"success\": false,\n  \"error\": \"Account suspended\",\n  \"code\": \"ACCOUNT_BANNED\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success) {",
+                  "  pm.collectionVariables.set('accessToken', json.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+                  "  pm.test('Token rotated', () => pm.response.to.have.status(200));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/refresh",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "refresh"]
+            },
+            "description": "Rotate the refresh token. Old token is invalidated, new pair is issued. Auto-saves new tokens."
+          },
+          "response": [
+            {
+              "name": "200 OK — New tokens",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"accessToken\": \"eyJ...\",\n    \"refreshToken\": \"new-uuid\",\n    \"user\": { \"id\": \"uuid\", \"email\": \"user@kikoo.ai\" }\n  }\n}"
+            },
+            {
+              "name": "401 Invalid refresh token",
+              "status": "Unauthorized",
+              "code": 401,
+              "body": "{\n  \"success\": false,\n  \"error\": \"Invalid refresh token\",\n  \"code\": \"INVALID_REFRESH_TOKEN\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/logout",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "logout"]
+            },
+            "description": "Invalidates all refresh tokens for the authenticated user. Requires Bearer token."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"data\": { \"message\": \"Logged out\" }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "User",
+      "item": [
+        {
+          "name": "Get My Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "me"]
+            },
+            "description": "Returns the authenticated user joined with their full profile (XP, streak, badges, subscription, etc.)."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"user\": {\n      \"id\": \"uuid\",\n      \"email\": \"user@kikoo.ai\",\n      \"username\": \"kikoouser\",\n      \"fullname\": \"Kikoo User\",\n      \"role\": \"student\",\n      \"is_banned\": false,\n      \"is_admin\": false,\n      \"interests\": [],\n      \"education\": {},\n      \"motive\": \"\",\n      \"targets\": {},\n      \"subscription_status\": \"free\",\n      \"streak\": 0,\n      \"xp\": 0,\n      \"daily_energy_count\": 0,\n      \"badges\": [],\n      \"last_streak_update\": null\n    }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Update My Profile",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type",   "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"interests\": [\"business english\", \"pronunciation\"],\n  \"motive\": \"Improve professional communication skills\",\n  \"education\": {\n    \"level\": \"bachelor\",\n    \"field\": \"Computer Science\"\n  },\n  \"targets\": {\n    \"daily_minutes\": 20,\n    \"target_score\": \"B2\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "me"]
+            },
+            "description": "Update profile fields. All fields optional — send only what you want to change.\n\nAllowed fields: `interests`, `education`, `motive`, `targets`, `resume_ref`."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"profile\": {\n      \"user_id\": \"uuid\",\n      \"interests\": [\"business english\", \"pronunciation\"],\n      \"motive\": \"Improve professional communication skills\",\n      \"education\": { \"level\": \"bachelor\", \"field\": \"Computer Science\" },\n      \"targets\": { \"daily_minutes\": 20, \"target_score\": \"B2\" },\n      \"streak\": 0,\n      \"xp\": 0\n    }\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Exercises",
+      "item": [
+        {
+          "name": "Get Fill-in-the-Blank Seed",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success) {",
+                  "  pm.collectionVariables.set('seedId', json.data.seed.id);",
+                  "  pm.test('Seed fetched', () => pm.response.to.have.status(200));",
+                  "  pm.test('answer_key not exposed', () => {",
+                  "    pm.expect(JSON.stringify(json.data.seed.payload)).to.not.include('answer_key');",
+                  "  });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exercises/fillup/seed?difficulty=easy",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exercises", "fillup", "seed"],
+              "query": [
+                { "key": "difficulty", "value": "easy", "description": "easy | medium | hard (default: medium)" }
+              ]
+            },
+            "description": "Fetch a random exercise seed. `answer_key` and `acceptable_variants` are stripped before returning.\n\n**Types:** `fillup`, `jumbled_word`, `jumbled_sentence`, `vocab`, `synonyms`, `antonyms`, `pronunciation_spelling`, `grammar_transform`, `typing_from_audio`"
+          }
+        },
+        {
+          "name": "Get Jumbled Word Seed",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success) pm.collectionVariables.set('seedId', json.data.seed.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exercises/jumbled_word/seed?difficulty=medium",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exercises", "jumbled_word", "seed"],
+              "query": [
+                { "key": "difficulty", "value": "medium" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Vocab Seed",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success) pm.collectionVariables.set('seedId', json.data.seed.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exercises/vocab/seed?difficulty=easy",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exercises", "vocab", "seed"],
+              "query": [
+                { "key": "difficulty", "value": "easy" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Submit Exercise Answer",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type",   "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"seed_id\": \"{{seedId}}\",\n  \"user_answer\": \"goes\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exercises/fillup/submit",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exercises", "fillup", "submit"]
+            },
+            "description": "Submit an answer for any exercise type.\n\n- `seed_id`: UUID from the seed endpoint\n- `user_answer`: string for text types, option ID (e.g. `\"a\"`) for vocab/synonyms/antonyms\n- `audio_id`: optional UUID for audio submissions\n\nConsumes 1 energy. Awards XP. Updates streak if daily threshold met."
+          },
+          "response": [
+            {
+              "name": "200 Correct answer",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"is_correct\": true,\n    \"score\": 100,\n    \"xp_awarded\": 10,\n    \"explanation\": \"'Goes' is correct because the subject is third-person singular.\",\n    \"hints\": [\"Think about subject-verb agreement.\", \"The subject is 'She'.\"]\n  }\n}"
+            },
+            {
+              "name": "200 Wrong answer",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"is_correct\": false,\n    \"score\": 0,\n    \"xp_awarded\": 1,\n    \"explanation\": \"...\",\n    \"hints\": [\"...\"]\n  }\n}"
+            },
+            {
+              "name": "402 Energy Depleted",
+              "status": "Payment Required",
+              "code": 402,
+              "body": "{\n  \"error\": \"Daily energy depleted. Resets at midnight UTC.\",\n  \"code\": \"ENERGY_DEPLETED\",\n  \"resets_at\": \"2026-03-21T00:00:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Submit Vocab Answer",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type",   "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"seed_id\": \"{{seedId}}\",\n  \"user_answer\": \"a\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exercises/vocab/submit",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exercises", "vocab", "submit"]
+            },
+            "description": "For vocab/synonyms/antonyms, pass the option ID as `user_answer` (e.g. `\"a\"`, `\"b\"`, `\"c\"`, `\"d\"`)."
+          }
+        },
+        {
+          "name": "Get Speaking Prompt",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exercises/speaking/prompt",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exercises", "speaking", "prompt"]
+            },
+            "description": "Returns a speaking prompt matched to the user's current level (derived from XP).\n\n| XP Range | CEFR Level | Difficulty |\n|---|---|---|\n| 0–300 | A1/A2 | easy |\n| 301–1500 | B1/B2 | medium |\n| 1501+ | C1 | hard |"
+          },
+          "response": [
+            {
+              "name": "404 No prompts seeded",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"success\": false,\n  \"error\": \"No speaking prompts available\",\n  \"code\": \"NOT_FOUND\"\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
