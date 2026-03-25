@@ -121,21 +121,26 @@ const vocabItems = [
 async function seed() {
   const client = await pool.connect();
   try {
-    // Idempotent: clear existing seeds of these types before reinserting
-    await client.query(
-      "DELETE FROM exercise_seeds WHERE type IN ('fillup', 'jumbled_word', 'vocab')"
-    );
-
     const all = [...fillups, ...jumbledWords, ...vocabItems];
+    let inserted = 0;
+
     for (const item of all) {
-      await client.query(
-        'INSERT INTO exercise_seeds (type, difficulty, payload) VALUES ($1, $2, $3)',
+      // Idempotent: skip if an identical type+difficulty+payload row already exists
+      const { rowCount } = await client.query(
+        `INSERT INTO exercise_seeds (type, difficulty, payload)
+         VALUES ($1, $2, $3)
+         ON CONFLICT DO NOTHING`,
         [item.type, item.difficulty, JSON.stringify(item.payload)]
       );
-      console.log(`[seed] Inserted ${item.type} (${item.difficulty})`);
+      if (rowCount > 0) {
+        console.log(`[seed] Inserted ${item.type} (${item.difficulty})`);
+        inserted++;
+      } else {
+        console.log(`[seed] Skipped (already exists): ${item.type} (${item.difficulty})`);
+      }
     }
 
-    console.log(`[seed] Done — inserted ${all.length} exercise seeds.`);
+    console.log(`[seed] Done — ${inserted} inserted, ${all.length - inserted} already existed.`);
   } finally {
     client.release();
     await pool.end();

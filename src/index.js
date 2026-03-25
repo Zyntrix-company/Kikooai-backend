@@ -4,6 +4,8 @@ import pool from './db/pool.js';
 import errorHandler from './middleware/errorHandler.js';
 import authRouter from './routes/auth.js';
 import exercisesRouter from './routes/exercises.js';
+import audioRouter from './routes/audio.js';
+import { jobQueue } from './jobs/JobQueue.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,19 +14,60 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Health check
+// Required env vars grouped by service
+const REQUIRED_ENV = {
+  core:       ['DATABASE_URL', 'JWT_SECRET', 'JWT_EXPIRY', 'REFRESH_TOKEN_EXPIRY'],
+  cloudinary: ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'],
+  gemini:     ['GEMINI_API_KEY'],
+};
+
+// Health check — checks DB connectivity + env var completeness
 app.get('/healthz', async (req, res) => {
+  const ts = new Date().toISOString();
+  const checks = {};
+  let allOk = true;
+
+  // 1. Database
   try {
     await pool.query('SELECT 1');
-    return res.json({ status: 'ok', db: 'connected', ts: new Date().toISOString() });
-  } catch {
-    return res.status(500).json({ status: 'error', db: 'disconnected' });
+    checks.database = { status: 'ok' };
+  } catch (err) {
+    checks.database = { status: 'error', message: err.message };
+    allOk = false;
   }
+
+  // 2. Environment variables
+  const envChecks = {};
+  for (const [group, keys] of Object.entries(REQUIRED_ENV)) {
+    const missing = keys.filter((k) => !process.env[k]);
+    envChecks[group] = missing.length === 0
+      ? { status: 'ok' }
+      : { status: 'missing', missing };
+    if (missing.length > 0) allOk = false;
+  }
+  checks.env = envChecks;
+
+  // 3. Job queue
+  checks.job_queue = { status: 'ok', queued: jobQueue.queue.length };
+
+  // 4. Routes mounted
+  checks.routes = {
+    status: 'ok',
+    mounted: ['/api/v1/auth', '/api/v1/exercises', '/api/v1/audio', '/api/v1/jobs'],
+  };
+
+  const httpStatus = allOk ? 200 : 503;
+  return res.status(httpStatus).json({
+    status: allOk ? 'ok' : 'degraded',
+    ts,
+    checks,
+  });
 });
 
 // API routes
 app.use('/api/v1', authRouter);
 app.use('/api/v1', exercisesRouter);
+app.use('/api/v1', audioRouter);
 
 // 404 handler
 app.use((req, res) => {

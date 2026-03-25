@@ -21,6 +21,28 @@ const submitSchema = Joi.object({
   audio_id: Joi.string().uuid().optional(),
 });
 
+// POST /exercises/speaking/evaluate
+const speakingEvaluateSchema = Joi.object({
+  audio_id:  Joi.string().uuid().required(),
+  prompt_id: Joi.string().uuid().required(),
+});
+
+router.post('/exercises/speaking/evaluate', auth, validate(speakingEvaluateSchema), async (req, res, next) => {
+  try {
+    const { audio_id, prompt_id } = req.body;
+    const result = await exerciseService.evaluateSpeakingExercise(req.user.id, audio_id, prompt_id);
+    return success(res, result);
+  } catch (err) {
+    if (err.message === 'Transcript not ready') {
+      return res.status(202).json({
+        success: false,
+        message: 'Transcript still processing. Try again shortly.',
+      });
+    }
+    next(err);
+  }
+});
+
 // GET /exercises/speaking/prompt  — must be declared before /:type routes
 router.get('/exercises/speaking/prompt', auth, async (req, res, next) => {
   try {

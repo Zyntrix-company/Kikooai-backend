@@ -1,14 +1,17 @@
 {
   "info": {
     "name": "KikooAI Backend",
-    "description": "Complete API collection for the KikooAI English learning platform backend.\n\n**Setup:**\n1. Set `baseUrl` variable to `http://localhost:3000`\n2. Run **Signup** or **Login** — the collection auto-saves your access token and refresh token.\n3. All authenticated routes will use the saved token automatically.",
+    "description": "Complete API collection for the KikooAI English learning + interview prep platform backend.\n\n**Setup:**\n1. Set `baseUrl` variable to `http://localhost:3000`\n2. Run **Signup** or **Login** — tokens are auto-saved.\n3. All authenticated routes use `{{accessToken}}` automatically.\n\n**Audio Flow:**\n`POST /audio/upload-init` → upload directly to Cloudinary → `POST /audio/complete` → poll `GET /jobs/:id/status` → `GET /audio/:id/transcript`",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     { "key": "baseUrl",      "value": "http://localhost:3000", "type": "string" },
     { "key": "accessToken",  "value": "",                      "type": "string" },
     { "key": "refreshToken", "value": "",                      "type": "string" },
-    { "key": "seedId",       "value": "",                      "type": "string" }
+    { "key": "seedId",       "value": "",                      "type": "string" },
+    { "key": "uploadId",     "value": "",                      "type": "string" },
+    { "key": "audioId",      "value": "",                      "type": "string" },
+    { "key": "jobId",        "value": "",                      "type": "string" }
   ],
   "item": [
     {
@@ -24,14 +27,16 @@
               "host": ["{{baseUrl}}"],
               "path": ["healthz"]
             },
-            "description": "Checks server status and database connectivity."
+            "description": "Checks server status and database connectivity. No auth required."
           },
           "response": [
             {
               "name": "200 OK",
               "status": "OK",
               "code": 200,
-              "body": "{\n  \"status\": \"ok\",\n  \"db\": \"connected\",\n  \"ts\": \"2026-03-20T08:00:00.000Z\"\n}"
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": \"ok\",\n  \"db\": \"connected\",\n  \"ts\": \"2026-03-25T08:00:00.000Z\"\n}"
             }
           ]
         }
@@ -81,18 +86,21 @@
               "name": "201 Created",
               "status": "Created",
               "code": 201,
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"user\": {\n      \"id\": \"uuid\",\n      \"email\": \"user@kikoo.ai\",\n      \"username\": \"kikoouser\",\n      \"fullname\": \"Kikoo User\",\n      \"role\": \"student\",\n      \"is_banned\": false,\n      \"is_admin\": false,\n      \"created_at\": \"2026-03-20T08:00:00.000Z\"\n    },\n    \"accessToken\": \"eyJ...\",\n    \"refreshToken\": \"uuid-v4\"\n  }\n}"
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"user\": {\n      \"id\": \"966a5a94-bc81-4eb2-abce-fddeca749a95\",\n      \"email\": \"user@kikoo.ai\",\n      \"username\": \"kikoouser\",\n      \"fullname\": \"Kikoo User\",\n      \"role\": \"student\",\n      \"is_banned\": false,\n      \"is_admin\": false,\n      \"created_at\": \"2026-03-25T08:00:00.000Z\"\n    },\n    \"accessToken\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\n    \"refreshToken\": \"687cf039-ca26-4e54-b91c-df98de3815f9\"\n  }\n}"
             },
             {
-              "name": "409 Conflict — Duplicate user",
+              "name": "409 Duplicate user",
               "status": "Conflict",
               "code": 409,
+              "_postman_previewlanguage": "json",
               "body": "{\n  \"success\": false,\n  \"error\": \"Email or username already in use\",\n  \"code\": \"DUPLICATE_USER\"\n}"
             },
             {
               "name": "400 Validation Error",
               "status": "Bad Request",
               "code": 400,
+              "_postman_previewlanguage": "json",
               "body": "{\n  \"success\": false,\n  \"error\": \"\\\"password\\\" length must be at least 8 characters long\",\n  \"code\": \"VALIDATION_ERROR\"\n}"
             }
           ]
@@ -135,18 +143,21 @@
               "name": "200 OK",
               "status": "OK",
               "code": 200,
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"user\": { \"id\": \"uuid\", \"email\": \"user@kikoo.ai\" },\n    \"accessToken\": \"eyJ...\",\n    \"refreshToken\": \"uuid-v4\"\n  }\n}"
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"user\": {\n      \"id\": \"966a5a94-bc81-4eb2-abce-fddeca749a95\",\n      \"email\": \"user@kikoo.ai\",\n      \"username\": \"kikoouser\",\n      \"fullname\": \"Kikoo User\",\n      \"role\": \"student\",\n      \"is_banned\": false,\n      \"is_admin\": false\n    },\n    \"accessToken\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\n    \"refreshToken\": \"687cf039-ca26-4e54-b91c-df98de3815f9\"\n  }\n}"
             },
             {
               "name": "401 Invalid credentials",
               "status": "Unauthorized",
               "code": 401,
+              "_postman_previewlanguage": "json",
               "body": "{\n  \"success\": false,\n  \"error\": \"Invalid credentials\",\n  \"code\": \"INVALID_CREDENTIALS\"\n}"
             },
             {
               "name": "403 Account banned",
               "status": "Forbidden",
               "code": 403,
+              "_postman_previewlanguage": "json",
               "body": "{\n  \"success\": false,\n  \"error\": \"Account suspended\",\n  \"code\": \"ACCOUNT_BANNED\"\n}"
             }
           ]
@@ -182,19 +193,21 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "auth", "refresh"]
             },
-            "description": "Rotate the refresh token. Old token is invalidated, new pair is issued. Auto-saves new tokens."
+            "description": "Rotate the refresh token. Old token is invalidated, new pair is issued."
           },
           "response": [
             {
-              "name": "200 OK — New tokens",
+              "name": "200 OK",
               "status": "OK",
               "code": 200,
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"accessToken\": \"eyJ...\",\n    \"refreshToken\": \"new-uuid\",\n    \"user\": { \"id\": \"uuid\", \"email\": \"user@kikoo.ai\" }\n  }\n}"
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"accessToken\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\n    \"refreshToken\": \"new-uuid-here\",\n    \"user\": { \"id\": \"uuid\", \"email\": \"user@kikoo.ai\" }\n  }\n}"
             },
             {
               "name": "401 Invalid refresh token",
               "status": "Unauthorized",
               "code": 401,
+              "_postman_previewlanguage": "json",
               "body": "{\n  \"success\": false,\n  \"error\": \"Invalid refresh token\",\n  \"code\": \"INVALID_REFRESH_TOKEN\"\n}"
             }
           ]
@@ -211,13 +224,14 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "auth", "logout"]
             },
-            "description": "Invalidates all refresh tokens for the authenticated user. Requires Bearer token."
+            "description": "Invalidates all refresh tokens for the authenticated user."
           },
           "response": [
             {
               "name": "200 OK",
               "status": "OK",
               "code": 200,
+              "_postman_previewlanguage": "json",
               "body": "{\n  \"success\": true,\n  \"data\": { \"message\": \"Logged out\" }\n}"
             }
           ]
@@ -246,7 +260,8 @@
               "name": "200 OK",
               "status": "OK",
               "code": 200,
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"user\": {\n      \"id\": \"uuid\",\n      \"email\": \"user@kikoo.ai\",\n      \"username\": \"kikoouser\",\n      \"fullname\": \"Kikoo User\",\n      \"role\": \"student\",\n      \"is_banned\": false,\n      \"is_admin\": false,\n      \"interests\": [],\n      \"education\": {},\n      \"motive\": \"\",\n      \"targets\": {},\n      \"subscription_status\": \"free\",\n      \"streak\": 0,\n      \"xp\": 0,\n      \"daily_energy_count\": 0,\n      \"badges\": [],\n      \"last_streak_update\": null\n    }\n  }\n}"
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"user\": {\n      \"id\": \"966a5a94-bc81-4eb2-abce-fddeca749a95\",\n      \"email\": \"user@kikoo.ai\",\n      \"username\": \"kikoouser\",\n      \"fullname\": \"Kikoo User\",\n      \"role\": \"student\",\n      \"is_banned\": false,\n      \"is_admin\": false,\n      \"interests\": [],\n      \"education\": {},\n      \"motive\": \"\",\n      \"targets\": {},\n      \"subscription_status\": \"free\",\n      \"streak\": 3,\n      \"xp\": 450,\n      \"daily_energy_count\": 7,\n      \"badges\": [],\n      \"last_streak_update\": \"2026-03-24T00:00:00.000Z\"\n    }\n  }\n}"
             }
           ]
         },
@@ -268,14 +283,15 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "users", "me"]
             },
-            "description": "Update profile fields. All fields optional — send only what you want to change.\n\nAllowed fields: `interests`, `education`, `motive`, `targets`, `resume_ref`."
+            "description": "Update profile fields. All fields optional."
           },
           "response": [
             {
               "name": "200 OK",
               "status": "OK",
               "code": 200,
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"profile\": {\n      \"user_id\": \"uuid\",\n      \"interests\": [\"business english\", \"pronunciation\"],\n      \"motive\": \"Improve professional communication skills\",\n      \"education\": { \"level\": \"bachelor\", \"field\": \"Computer Science\" },\n      \"targets\": { \"daily_minutes\": 20, \"target_score\": \"B2\" },\n      \"streak\": 0,\n      \"xp\": 0\n    }\n  }\n}"
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"profile\": {\n      \"user_id\": \"966a5a94-bc81-4eb2-abce-fddeca749a95\",\n      \"interests\": [\"business english\", \"pronunciation\"],\n      \"motive\": \"Improve professional communication skills\",\n      \"education\": { \"level\": \"bachelor\", \"field\": \"Computer Science\" },\n      \"targets\": { \"daily_minutes\": 20, \"target_score\": \"B2\" },\n      \"streak\": 3,\n      \"xp\": 450\n    }\n  }\n}"
             }
           ]
         }
@@ -314,11 +330,34 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "exercises", "fillup", "seed"],
               "query": [
-                { "key": "difficulty", "value": "easy", "description": "easy | medium | hard (default: medium)" }
+                { "key": "difficulty", "value": "easy", "description": "easy | medium | hard" }
               ]
             },
-            "description": "Fetch a random exercise seed. `answer_key` and `acceptable_variants` are stripped before returning.\n\n**Types:** `fillup`, `jumbled_word`, `jumbled_sentence`, `vocab`, `synonyms`, `antonyms`, `pronunciation_spelling`, `grammar_transform`, `typing_from_audio`"
-          }
+            "description": "Fetch a random exercise seed. `answer_key` and `acceptable_variants` are **stripped** before returning.\n\n**Valid types:** `fillup`, `jumbled_word`, `jumbled_sentence`, `vocab`, `synonyms`, `antonyms`, `pronunciation_spelling`, `grammar_transform`, `typing_from_audio`"
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"seed\": {\n      \"id\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n      \"type\": \"fillup\",\n      \"difficulty\": \"easy\",\n      \"payload\": {\n        \"sentence\": \"She ___ to the market every morning.\",\n        \"blank_count\": 1,\n        \"explanation\": \"'Goes' is correct because the subject is third-person singular.\",\n        \"hints\": [\"Think about subject-verb agreement.\", \"The subject is 'She'.\"]\n      }\n    }\n  }\n}"
+            },
+            {
+              "name": "404 No exercises found",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"No exercises available for this type and difficulty\",\n  \"code\": \"NOT_FOUND\"\n}"
+            },
+            {
+              "name": "400 Invalid type",
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Invalid exercise type\",\n  \"code\": \"INVALID_TYPE\"\n}"
+            }
+          ]
         },
         {
           "name": "Get Jumbled Word Seed",
@@ -343,11 +382,18 @@
               "raw": "{{baseUrl}}/api/v1/exercises/jumbled_word/seed?difficulty=medium",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "exercises", "jumbled_word", "seed"],
-              "query": [
-                { "key": "difficulty", "value": "medium" }
-              ]
+              "query": [{ "key": "difficulty", "value": "medium" }]
             }
-          }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"seed\": {\n      \"id\": \"uuid\",\n      \"type\": \"jumbled_word\",\n      \"difficulty\": \"medium\",\n      \"payload\": {\n        \"jumbled\": \"TNMIEAIONOG\",\n        \"hint\": \"A formal ceremony or event\",\n        \"explanation\": \"The correct word is NEGOTIATION.\"\n      }\n    }\n  }\n}"
+            }
+          ]
         },
         {
           "name": "Get Vocab Seed",
@@ -372,11 +418,18 @@
               "raw": "{{baseUrl}}/api/v1/exercises/vocab/seed?difficulty=easy",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "exercises", "vocab", "seed"],
-              "query": [
-                { "key": "difficulty", "value": "easy" }
-              ]
+              "query": [{ "key": "difficulty", "value": "easy" }]
             }
-          }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"seed\": {\n      \"id\": \"uuid\",\n      \"type\": \"vocab\",\n      \"difficulty\": \"easy\",\n      \"payload\": {\n        \"word\": \"eloquent\",\n        \"sentence\": \"The lawyer gave an ___ speech.\",\n        \"options\": {\n          \"a\": \"confused\",\n          \"b\": \"eloquent\",\n          \"c\": \"nervous\",\n          \"d\": \"boring\"\n        }\n      }\n    }\n  }\n}"
+            }
+          ]
         },
         {
           "name": "Submit Exercise Answer",
@@ -396,49 +449,38 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "exercises", "fillup", "submit"]
             },
-            "description": "Submit an answer for any exercise type.\n\n- `seed_id`: UUID from the seed endpoint\n- `user_answer`: string for text types, option ID (e.g. `\"a\"`) for vocab/synonyms/antonyms\n- `audio_id`: optional UUID for audio submissions\n\nConsumes 1 energy. Awards XP. Updates streak if daily threshold met."
+            "description": "Submit an answer for any exercise type.\n\n- `user_answer`: string for text types, option ID (`\"a\"`,`\"b\"`,`\"c\"`,`\"d\"`) for vocab/synonyms/antonyms\n- Consumes 1 energy, awards XP, updates streak if threshold met."
           },
           "response": [
             {
-              "name": "200 Correct answer",
+              "name": "200 Correct",
               "status": "OK",
               "code": 200,
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"is_correct\": true,\n    \"score\": 100,\n    \"xp_awarded\": 10,\n    \"explanation\": \"'Goes' is correct because the subject is third-person singular.\",\n    \"hints\": [\"Think about subject-verb agreement.\", \"The subject is 'She'.\"]\n  }\n}"
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"is_correct\": true,\n    \"score\": 100,\n    \"xp_awarded\": 10,\n    \"explanation\": \"'Goes' is correct because the subject is third-person singular.\",\n    \"hints\": [\"Think about subject-verb agreement.\"]\n  }\n}"
             },
             {
-              "name": "200 Wrong answer",
+              "name": "200 Wrong",
               "status": "OK",
               "code": 200,
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"is_correct\": false,\n    \"score\": 0,\n    \"xp_awarded\": 1,\n    \"explanation\": \"...\",\n    \"hints\": [\"...\"]\n  }\n}"
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"is_correct\": false,\n    \"score\": 0,\n    \"xp_awarded\": 1,\n    \"explanation\": \"The correct answer is 'goes'.\",\n    \"hints\": [\"Think about subject-verb agreement.\"]\n  }\n}"
             },
             {
               "name": "402 Energy Depleted",
               "status": "Payment Required",
               "code": 402,
-              "body": "{\n  \"error\": \"Daily energy depleted. Resets at midnight UTC.\",\n  \"code\": \"ENERGY_DEPLETED\",\n  \"resets_at\": \"2026-03-21T00:00:00.000Z\"\n}"
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"error\": \"Daily energy depleted. Resets at midnight UTC.\",\n  \"code\": \"ENERGY_DEPLETED\",\n  \"resets_at\": \"2026-03-26T00:00:00.000Z\"\n}"
+            },
+            {
+              "name": "401 Unauthorized",
+              "status": "Unauthorized",
+              "code": 401,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"error\": \"Unauthorized\",\n  \"code\": \"INVALID_TOKEN\"\n}"
             }
           ]
-        },
-        {
-          "name": "Submit Vocab Answer",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
-              { "key": "Content-Type",   "value": "application/json" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"seed_id\": \"{{seedId}}\",\n  \"user_answer\": \"a\"\n}",
-              "options": { "raw": { "language": "json" } }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/exercises/vocab/submit",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "exercises", "vocab", "submit"]
-            },
-            "description": "For vocab/synonyms/antonyms, pass the option ID as `user_answer` (e.g. `\"a\"`, `\"b\"`, `\"c\"`, `\"d\"`)."
-          }
         },
         {
           "name": "Get Speaking Prompt",
@@ -452,14 +494,357 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "exercises", "speaking", "prompt"]
             },
-            "description": "Returns a speaking prompt matched to the user's current level (derived from XP).\n\n| XP Range | CEFR Level | Difficulty |\n|---|---|---|\n| 0–300 | A1/A2 | easy |\n| 301–1500 | B1/B2 | medium |\n| 1501+ | C1 | hard |"
+            "description": "Returns a speaking prompt matched to the user's current XP level.\n\n| XP | CEFR | Difficulty |\n|---|---|---|\n| 0–300 | A1/A2 | easy |\n| 301–1500 | B1/B2 | medium |\n| 1501+ | C1 | hard |"
           },
           "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"prompt\": {\n      \"id\": \"uuid\",\n      \"type\": \"speaking_prompt\",\n      \"difficulty\": \"easy\",\n      \"payload\": {\n        \"prompt_text\": \"Describe your ideal morning routine in 2-3 sentences.\",\n        \"time_limit_seconds\": 60\n      }\n    }\n  }\n}"
+            },
             {
               "name": "404 No prompts seeded",
               "status": "Not Found",
               "code": 404,
+              "_postman_previewlanguage": "json",
               "body": "{\n  \"success\": false,\n  \"error\": \"No speaking prompts available\",\n  \"code\": \"NOT_FOUND\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Evaluate Speaking Exercise",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type",   "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"audio_id\": \"{{audioId}}\",\n  \"prompt_id\": \"{{seedId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exercises/speaking/evaluate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exercises", "speaking", "evaluate"]
+            },
+            "description": "Evaluate a speaking exercise submission.\n\n- `audio_id`: UUID from a completed audio transcription\n- `prompt_id`: UUID of the speaking prompt seed\n\nReuses existing `feedback_json` if already analysed. Composite score = average of pronunciation + vocabulary + grammar + fluency. Awards XP and updates streak."
+          },
+          "response": [
+            {
+              "name": "200 OK — Evaluated",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"score\": 74,\n    \"xp_awarded\": 14,\n    \"feedback\": {\n      \"pronunciation\": { \"score\": 78, \"issues\": [] },\n      \"vocabulary\":    { \"score\": 80, \"strong_words\": [\"eloquent\"], \"weak_words\": [], \"suggestions\": [] },\n      \"grammar\":       { \"score\": 70, \"errors\": [{ \"original\": \"I goes\", \"corrected\": \"I go\", \"rule\": \"Subject-verb agreement\" }] },\n      \"fluency\":       { \"score\": 68, \"wpm\": 112, \"pause_count\": 3, \"notes\": \"Good pace, minor hesitations\" },\n      \"filler_words\":  { \"count\": 2, \"words\": [{ \"word\": \"um\", \"occurrences\": 2 }] },\n      \"suggestions\":   [\"Reduce filler words\", \"Work on subject-verb agreement\"],\n      \"overall_score\": 74,\n      \"level\":         \"B1\",\n      \"schema_version\": \"1.0\"\n    }\n  }\n}"
+            },
+            {
+              "name": "202 Transcript Still Processing",
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"message\": \"Transcript still processing. Try again shortly.\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Audio",
+      "item": [
+        {
+          "name": "1 — Request Upload Signature",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success) {",
+                  "  pm.collectionVariables.set('uploadId', json.data.upload_id);",
+                  "  pm.test('Upload init successful', () => pm.response.to.have.status(200));",
+                  "  pm.test('Signature present', () => {",
+                  "    pm.expect(json.data.cloudinary.signature).to.be.a('string').and.not.empty;",
+                  "  });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type",   "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filename\": \"recording.webm\",\n  \"format\": \"webm\",\n  \"context_type\": \"speaking\",\n  \"duration_seconds\": 45\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/audio/upload-init",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "audio", "upload-init"]
+            },
+            "description": "**Step 1 of the audio flow.**\n\nGenerates a signed Cloudinary upload URL. The client should use the returned params to upload the audio file **directly to Cloudinary** — it never passes through the backend server.\n\n**context_type** values: `speaking` | `interview` | `speed_reading`\n\n**format** values: `webm` | `mp4` | `mp3` | `wav` | `ogg` | `m4a`\n\nThe signature is valid for 15 minutes (`expires_in_seconds: 900`)."
+          },
+          "response": [
+            {
+              "name": "200 OK — Upload signature",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"upload_id\": \"acaf753d-9991-4e3f-b70f-094983f30050\",\n    \"cloudinary\": {\n      \"uploadUrl\": \"https://api.cloudinary.com/v1_1/dv0xgum7s/video/upload\",\n      \"signature\": \"3783b23b1957a65ec074dca2bf2a2dd983c36a7c\",\n      \"timestamp\": 1774461359,\n      \"apiKey\": \"986456461221934\",\n      \"cloudName\": \"dv0xgum7s\",\n      \"folder\": \"kikoo/audio/966a5a94-bc81-4eb2-abce-fddeca749a95\"\n    },\n    \"expires_in_seconds\": 900\n  }\n}"
+            },
+            {
+              "name": "400 Validation Error",
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"\\\"filename\\\" is required\",\n  \"code\": \"VALIDATION_ERROR\"\n}"
+            },
+            {
+              "name": "401 Unauthorized",
+              "status": "Unauthorized",
+              "code": 401,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"error\": \"Unauthorized\",\n  \"code\": \"INVALID_TOKEN\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "2 — [Client] Upload to Cloudinary",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file",          "type": "file",  "description": "Select your .webm / .mp3 / .wav file" },
+                { "key": "signature",     "value": "<from upload-init>",  "type": "text" },
+                { "key": "timestamp",     "value": "<from upload-init>",  "type": "text" },
+                { "key": "api_key",       "value": "<from upload-init>",  "type": "text" },
+                { "key": "folder",        "value": "<from upload-init>",  "type": "text" },
+                { "key": "resource_type", "value": "video",               "type": "text" }
+              ]
+            },
+            "url": {
+              "raw": "https://api.cloudinary.com/v1_1/{{cloudName}}/video/upload",
+              "protocol": "https",
+              "host": ["api", "cloudinary", "com"],
+              "path": ["v1_1", "{{cloudName}}", "video", "upload"]
+            },
+            "description": "**Step 2 — done by the client, NOT through this backend.**\n\nUpload the audio file directly to Cloudinary using the params from Step 1.\n\nCloudinary will return a JSON response containing `public_id` and `secure_url` — save these for Step 3.\n\nExample Cloudinary response:\n```json\n{\n  \"public_id\": \"kikoo/audio/user-id/abc123\",\n  \"secure_url\": \"https://res.cloudinary.com/dv0xgum7s/video/upload/v1234/kikoo/audio/abc123.webm\",\n  \"duration\": 45.2,\n  \"format\": \"webm\"\n}\n```"
+          },
+          "response": []
+        },
+        {
+          "name": "3 — Confirm Upload & Start Transcription",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data) {",
+                  "  pm.collectionVariables.set('audioId', json.data.audio_id);",
+                  "  pm.collectionVariables.set('jobId',   json.data.job_id);",
+                  "  pm.test('Transcription started', () => pm.response.to.have.status(202));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type",   "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"upload_id\": \"{{uploadId}}\",\n  \"cloudinary_public_id\": \"kikoo/audio/966a5a94/recording_abc123\",\n  \"cloudinary_url\": \"https://res.cloudinary.com/dv0xgum7s/video/upload/v1/kikoo/audio/966a5a94/recording_abc123.webm\",\n  \"format\": \"webm\",\n  \"duration_seconds\": 45,\n  \"prompt_text\": \"Describe your ideal morning routine.\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/audio/complete",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "audio", "complete"]
+            },
+            "description": "**Step 3 of the audio flow.**\n\nTell the backend about the completed Cloudinary upload. The backend will:\n1. Verify the asset exists on Cloudinary\n2. Update the `audio_files` record\n3. Enqueue a transcription job (Gemini)\n\nAuto-saves `audioId` and `jobId` to collection variables."
+          },
+          "response": [
+            {
+              "name": "202 Accepted — Transcription started",
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"audio_id\": \"acaf753d-9991-4e3f-b70f-094983f30050\",\n    \"job_id\":   \"f7e8d9c0-1234-5678-abcd-ef0123456789\",\n    \"message\":  \"Transcription started. Poll /jobs/:job_id/status for progress.\"\n  }\n}"
+            },
+            {
+              "name": "400 Asset not found on Cloudinary",
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Resource not found - test/fake\",\n  \"code\": \"CLOUDINARY_ERROR\"\n}"
+            },
+            {
+              "name": "404 Audio record not found / wrong owner",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Audio file not found\",\n  \"code\": \"AUDIO_NOT_FOUND\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "4 — Poll Job Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/jobs/{{jobId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "jobs", "{{jobId}}", "status"]
+            },
+            "description": "**Step 4 — poll every 2–3 seconds until `status` is `done` or `failed`.**\n\nProgress stages:\n- `10%` — Downloading audio from Cloudinary\n- `30%` — Audio downloaded\n- `60%` — Transcription complete\n- `80%` — Feedback analysis complete\n- `100%` — Done, transcript saved\n\nJobs are user-scoped — returns 404 for jobs that belong to a different user."
+          },
+          "response": [
+            {
+              "name": "200 Processing",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"id\":            \"f7e8d9c0-1234-5678-abcd-ef0123456789\",\n    \"status\":        \"processing\",\n    \"progress_pct\":  60,\n    \"error_message\": null,\n    \"updated_at\":    \"2026-03-25T08:01:30.000Z\"\n  }\n}"
+            },
+            {
+              "name": "200 Done",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"id\":            \"f7e8d9c0-1234-5678-abcd-ef0123456789\",\n    \"status\":        \"done\",\n    \"progress_pct\":  100,\n    \"error_message\": null,\n    \"updated_at\":    \"2026-03-25T08:01:45.000Z\"\n  }\n}"
+            },
+            {
+              "name": "200 Failed",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"id\":            \"f7e8d9c0-1234-5678-abcd-ef0123456789\",\n    \"status\":        \"failed\",\n    \"progress_pct\":  0,\n    \"error_message\": \"AI transcription service failed\",\n    \"updated_at\":    \"2026-03-25T08:01:50.000Z\"\n  }\n}"
+            },
+            {
+              "name": "401 Unauthorized",
+              "status": "Unauthorized",
+              "code": 401,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"error\": \"Unauthorized\",\n  \"code\": \"INVALID_TOKEN\"\n}"
+            },
+            {
+              "name": "404 Job not found / wrong owner",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Job not found\",\n  \"code\": \"JOB_NOT_FOUND\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "5 — Get Transcript & Feedback",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/audio/{{audioId}}/transcript",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "audio", "{{audioId}}", "transcript"]
+            },
+            "description": "**Step 5 — fetch after job status is `done`.**\n\nReturns the full transcript and structured AI feedback.\n\nIf transcription is not yet complete, returns `202` with the current status."
+          },
+          "response": [
+            {
+              "name": "200 Done — Full transcript",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"audio_id\": \"acaf753d-9991-4e3f-b70f-094983f30050\",\n    \"status\": \"done\",\n    \"transcript\": {\n      \"id\": \"t1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n      \"raw_text\": \"Every morning I like to wake up early and go for a short walk around the park. It helps me feel refreshed and ready for the day.\",\n      \"asr_confidence\": 0.85,\n      \"feedback\": {\n        \"pronunciation\": { \"score\": 82, \"issues\": [] },\n        \"vocabulary\":    { \"score\": 85, \"strong_words\": [\"refreshed\"], \"weak_words\": [], \"suggestions\": [] },\n        \"grammar\":       { \"score\": 90, \"errors\": [] },\n        \"fluency\":       { \"score\": 78, \"wpm\": 125, \"pause_count\": 1, \"notes\": \"Good rhythm\" },\n        \"filler_words\":  { \"count\": 0, \"words\": [] },\n        \"suggestions\":   [\"Excellent use of descriptive language\"],\n        \"overall_score\": 84,\n        \"level\":         \"B2\",\n        \"schema_version\": \"1.0\"\n      },\n      \"schema_version\": \"1.0\",\n      \"created_at\": \"2026-03-25T08:01:45.000Z\"\n    }\n  }\n}"
+            },
+            {
+              "name": "202 Still Processing",
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"status\": \"processing\",\n    \"message\": \"Transcription not complete yet\"\n  }\n}"
+            },
+            {
+              "name": "404 Audio not found",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Audio file not found\",\n  \"code\": \"AUDIO_NOT_FOUND\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "List My Audio Files",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/audio",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "audio"]
+            },
+            "description": "Returns the authenticated user's 20 most recent audio files, ordered by creation date descending."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"audio\": [\n      {\n        \"id\": \"acaf753d-9991-4e3f-b70f-094983f30050\",\n        \"user_id\": \"966a5a94-bc81-4eb2-abce-fddeca749a95\",\n        \"cloudinary_public_id\": \"kikoo/audio/966a5a94/recording_abc123\",\n        \"cloudinary_url\": \"https://res.cloudinary.com/dv0xgum7s/video/upload/v1/kikoo/audio/abc123.webm\",\n        \"duration_seconds\": 45,\n        \"format\": \"webm\",\n        \"status\": \"done\",\n        \"context_type\": \"speaking\",\n        \"archived_at\": null,\n        \"created_at\": \"2026-03-25T08:00:00.000Z\"\n      }\n    ]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Delete Audio File",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/audio/{{audioId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "audio", "{{audioId}}"]
+            },
+            "description": "Permanently deletes the audio file from Cloudinary and all associated records from the database (audio_files + transcripts cascade).\n\nUsed for GDPR deletion requests."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": { \"message\": \"Audio and transcript deleted\" }\n}"
+            },
+            {
+              "name": "404 Not found / wrong owner",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Audio file not found\",\n  \"code\": \"AUDIO_NOT_FOUND\"\n}"
             }
           ]
         }

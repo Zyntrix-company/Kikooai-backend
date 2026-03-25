@@ -8,7 +8,15 @@
       "Bash(npm uninstall:*)",
       "Bash(node src/db/migrate.js)",
       "Bash(node src/seeds/exercises.js)",
-      "Bash(pkill -f \"node src/index.js\")"
+      "Bash(pkill -f \"node src/index.js\")",
+      "Bash(curl -s http://localhost:3000/healthz)",
+      "Bash(curl -s -X POST http://localhost:3000/api/v1/auth/signup -H \"Content-Type: application/json\" -d '{\"\"email\"\":\"\"test@example.com\"\",\"\"password\"\":\"\"password123\"\",\"\"username\"\":\"\"testuser\"\",\"\"fullname\"\":\"\"Test User\"\",\"\"role\"\":\"\"student\"\"}')",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6Ijk2NmE1YTk0LWJjODEtNGViMi1hYmNlLWZkZGVjYTc0OWE5NSIsImVtYWlsIjoibTJ0ZXN0QGV4YW1wbGUuY29tIiwiaXNfYWRtaW4iOmZhbHNlLCJpYXQiOjE3NzQ0NjEzNDEsImV4cCI6MTc3NDQ2MjI0MX0.ftupMqk3k1u1QARu5Po5Kal9wbqcTlJQnciIVyN7ZT0\")",
+      "Bash(UPLOAD_ID=\"acaf753d-9991-4e3f-b70f-094983f30050\")",
+      "Bash(__NEW_LINE_7992da714c7e71e8__ echo:*)",
+      "Bash(curl -s -X POST http://localhost:3000/api/v1/audio/complete -H \"Authorization: Bearer $TOKEN\" -H \"Content-Type: application/json\" -d \"{\"\"upload_id\"\":\"\"$UPLOAD_ID\"\",\"\"cloudinary_public_id\"\":\"\"test/fake\"\",\"\"cloudinary_url\"\":\"\"https://res.cloudinary.com/test/fake.webm\"\",\"\"format\"\":\"\"webm\"\"}\")",
+      "Bash(ls d:/Kikooai/backend/*.json d:/Kikooai/backend/*.md)",
+      "Bash(netstat -ano)"
     ]
   }
 }

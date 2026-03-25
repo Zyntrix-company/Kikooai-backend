@@ -1,4 +1,5 @@
 import pool from '../db/pool.js';
+import * as geminiService from './geminiService.js';
 
 const MAX_DAILY_ENERGY = 50;
 
@@ -144,6 +145,90 @@ export async function submitExercise(userId, seedId, userAnswer) {
   await checkStreakUpdate(userId);
 
   return evaluation;
+}
+
+export async function evaluateSpeakingExercise(userId, audioId, promptId) {
+  // Fetch the speaking prompt seed
+  const { rows: seedRows } = await pool.query(
+    'SELECT * FROM exercise_seeds WHERE id = $1',
+    [promptId]
+  );
+  if (!seedRows[0]) {
+    const err = new Error('Speaking prompt not found');
+    err.status = 404;
+    throw err;
+  }
+  const seed = seedRows[0];
+  const promptText = seed.payload?.prompt_text || null;
+
+  // Fetch the transcript (requires status = 'done')
+  const { rows: audioRows } = await pool.query(
+    "SELECT * FROM audio_files WHERE id = $1 AND user_id = $2",
+    [audioId, userId]
+  );
+  if (!audioRows[0]) {
+    const err = new Error('Audio file not found');
+    err.status = 404;
+    throw err;
+  }
+  if (audioRows[0].status !== 'done') {
+    throw new Error('Transcript not ready');
+  }
+
+  const { rows: tRows } = await pool.query(
+    'SELECT * FROM transcripts WHERE audio_id = $1 ORDER BY created_at DESC LIMIT 1',
+    [audioId]
+  );
+  if (!tRows[0]) {
+    throw new Error('Transcript not ready');
+  }
+  const transcript = tRows[0];
+
+  // Use existing feedback if available, otherwise request analysis
+  let feedbackJson = transcript.feedback_json;
+  if (!feedbackJson) {
+    feedbackJson = await geminiService.analyzeTranscript(
+      transcript.raw_text,
+      promptText,
+      'speaking'
+    );
+    await pool.query(
+      'UPDATE transcripts SET feedback_json = $1 WHERE id = $2',
+      [JSON.stringify(feedbackJson), transcript.id]
+    );
+  }
+
+  // Composite score: average of four dimensions
+  const compositeScore = Math.round(
+    (feedbackJson.pronunciation.score +
+      feedbackJson.vocabulary.score +
+      feedbackJson.grammar.score +
+      feedbackJson.fluency.score) / 4
+  );
+  const xpAwarded = Math.round(compositeScore * 0.2);
+
+  await pool.query(
+    `INSERT INTO exercise_submissions
+       (user_id, seed_id, user_answer, is_correct, score, xp_awarded)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [
+      userId,
+      promptId,
+      JSON.stringify({ audio_id: audioId }),
+      compositeScore >= 60,
+      compositeScore,
+      xpAwarded,
+    ]
+  );
+
+  await pool.query(
+    'UPDATE profiles SET xp = xp + $1 WHERE user_id = $2',
+    [xpAwarded, userId]
+  );
+
+  await checkStreakUpdate(userId);
+
+  return { score: compositeScore, xp_awarded: xpAwarded, feedback: feedbackJson };
 }
 
 export async function getSpeakingPrompt(userId) {
