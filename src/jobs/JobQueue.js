@@ -24,15 +24,18 @@ class JobQueue {
    * @returns {string} jobId
    */
   async enqueue(type, payload, handler, options = {}) {
-    const id          = uuidv4();
+    const id          = options.jobId ?? uuidv4();
     const maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
     const userId      = options.userId ?? payload.userId ?? null;
 
-    await pool.query(
-      `INSERT INTO jobs (id, type, status, progress_pct, user_id, payload_ref, attempts)
-       VALUES ($1, $2, 'pending', 0, $3, $4, 0)`,
-      [id, type, userId, JSON.stringify(payload)]
-    );
+    // Skip INSERT if caller already created the DB row (options.jobId provided)
+    if (!options.jobId) {
+      await pool.query(
+        `INSERT INTO jobs (id, type, status, progress_pct, user_id, payload_ref, attempts)
+         VALUES ($1, $2, 'pending', 0, $3, $4, 0)`,
+        [id, type, userId, JSON.stringify(payload)]
+      );
+    }
 
     this.queue.push({ id, type, handler, payload, status: 'pending', attempts: 0, maxAttempts });
     return id;

@@ -11,7 +11,10 @@
     { "key": "seedId",       "value": "",                      "type": "string" },
     { "key": "uploadId",     "value": "",                      "type": "string" },
     { "key": "audioId",      "value": "",                      "type": "string" },
-    { "key": "jobId",        "value": "",                      "type": "string" }
+    { "key": "jobId",        "value": "",                      "type": "string" },
+    { "key": "resumeId",     "value": "",                      "type": "string" },
+    { "key": "reportId",     "value": "",                      "type": "string" },
+    { "key": "roomId",       "value": "",                      "type": "string" }
   ],
   "item": [
     {
@@ -845,6 +848,641 @@
               "code": 404,
               "_postman_previewlanguage": "json",
               "body": "{\n  \"success\": false,\n  \"error\": \"Audio file not found\",\n  \"code\": \"AUDIO_NOT_FOUND\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Resumes",
+      "description": "Resume upload (file or JSON), AI analysis, roast, and management.\n\n**File upload flow:**\n`POST /resumes/upload-init` → upload directly to Cloudinary raw endpoint → `POST /resumes/upload-complete` → use `resume_id` in /analyze or /roast → poll `/resumes/reports/:report_id`\n\n**JSON flow:**\n`POST /resumes/save-json` → use `resume_id` directly in /analyze or /roast",
+      "item": [
+        {
+          "name": "1 — Upload Init",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success) {",
+                  "  pm.collectionVariables.set('resumeId', json.data.resume_id);",
+                  "  pm.test('Upload init OK', () => pm.response.to.have.status(200));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/resumes/upload-init",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "resumes", "upload-init"]
+            },
+            "description": "**Step 1 of the resume file upload flow.**\n\nGenerates a signed Cloudinary upload URL for raw files (PDF/DOCX/TXT). No body required.\n\nCreates a placeholder `resumes` row and returns its `resume_id` so you can reference it in /upload-complete.\n\nThe upload URL targets Cloudinary's `/raw/upload` endpoint."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"resume_id\": \"5d78a66e-e562-49a5-b541-f25d244fa3a1\",\n    \"cloudinary\": {\n      \"uploadUrl\": \"https://api.cloudinary.com/v1_1/your-cloud/raw/upload\",\n      \"signature\": \"abc123...\",\n      \"timestamp\": 1774461359,\n      \"apiKey\": \"986456461221934\",\n      \"cloudName\": \"your-cloud\",\n      \"folder\": \"kikoo/resumes/user-id\"\n    }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "2 — [Client] Upload to Cloudinary (raw)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file",      "type": "file", "description": "Select your .pdf / .docx / .txt file" },
+                { "key": "signature", "value": "<from upload-init>", "type": "text" },
+                { "key": "timestamp", "value": "<from upload-init>", "type": "text" },
+                { "key": "api_key",   "value": "<from upload-init>", "type": "text" },
+                { "key": "folder",    "value": "<from upload-init>", "type": "text" }
+              ]
+            },
+            "url": {
+              "raw": "https://api.cloudinary.com/v1_1/{{cloudName}}/raw/upload",
+              "protocol": "https",
+              "host": ["api", "cloudinary", "com"],
+              "path": ["v1_1", "{{cloudName}}", "raw", "upload"]
+            },
+            "description": "**Step 2 — Upload directly to Cloudinary.**\n\nThis request goes to Cloudinary, NOT the backend. Use the params returned from upload-init.\n\nSave `public_id` and `secure_url` from the response for the next step."
+          },
+          "response": []
+        },
+        {
+          "name": "3 — Upload Complete",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"resume_id\": \"{{resumeId}}\",\n  \"cloudinary_public_id\": \"kikoo/resumes/user-id/my-cv\",\n  \"cloudinary_url\": \"https://res.cloudinary.com/your-cloud/raw/upload/...\",\n  \"format\": \"pdf\",\n  \"title\": \"My Software Engineer Resume\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/resumes/upload-complete",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "resumes", "upload-complete"]
+            },
+            "description": "**Step 3 — Confirm the Cloudinary upload.**\n\nVerifies the asset exists on Cloudinary and updates the resume record.\n\n`format`: `pdf` | `docx` | `txt`\n`title` is optional (max 100 chars)."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"resume\": {\n      \"id\": \"uuid\",\n      \"title\": \"My Software Engineer Resume\",\n      \"file_format\": \"pdf\",\n      \"cloudinary_url\": \"https://res.cloudinary.com/...\",\n      \"created_at\": \"2026-03-29T18:00:00.000Z\",\n      \"updated_at\": \"2026-03-29T18:00:10.000Z\"\n    }\n  }\n}"
+            },
+            {
+              "name": "400 File not on Cloudinary",
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Raw asset not found on Cloudinary\",\n  \"code\": \"FILE_NOT_FOUND_ON_CLOUDINARY\"\n}"
+            },
+            {
+              "name": "404 Resume not found",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Resume not found\",\n  \"code\": \"RESUME_NOT_FOUND\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Save JSON Resume",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success) {",
+                  "  pm.collectionVariables.set('resumeId', json.data.resume.id);",
+                  "  pm.test('Resume saved', () => pm.response.to.have.status(201));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"My Software Engineer Resume\",\n  \"json_blob\": {\n    \"name\": \"Jane Doe\",\n    \"email\": \"jane@example.com\",\n    \"experience\": [\n      { \"role\": \"Backend Developer\", \"company\": \"Acme Corp\", \"years\": 3 }\n    ],\n    \"skills\": [\"Node.js\", \"PostgreSQL\", \"Docker\", \"Express\"],\n    \"education\": [\n      { \"degree\": \"B.Tech Computer Science\", \"year\": 2022 }\n    ]\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/resumes/save-json",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "resumes", "save-json"]
+            },
+            "description": "Save structured resume data as JSON — no file upload needed.\n\nAuto-saves `resumeId` to collection variables."
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"resume\": {\n      \"id\": \"5d78a66e-e562-49a5-b541-f25d244fa3a1\",\n      \"title\": \"My Software Engineer Resume\",\n      \"json_blob\": { \"name\": \"Jane Doe\", \"skills\": [\"Node.js\", \"PostgreSQL\"] },\n      \"created_at\": \"2026-03-29T18:00:00.000Z\"\n    }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Analyze Resume",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success) {",
+                  "  pm.collectionVariables.set('reportId', json.data.report_id);",
+                  "  pm.collectionVariables.set('jobId',   json.data.job_id);",
+                  "  pm.test('Analysis queued', () => pm.response.to.have.status(202));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"resume_id\": \"{{resumeId}}\",\n  \"jd_text\": \"We are looking for a Node.js backend developer with 2+ years of experience in Express.js and PostgreSQL. The candidate should be familiar with REST API design, cloud deployments, and agile workflows. Strong communication skills required.\",\n  \"cover_letter\": \"Dear Hiring Manager, I am excited to apply for this role...\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/resumes/analyze",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "resumes", "analyze"]
+            },
+            "description": "Trigger an ATS-style AI analysis of the resume against a job description.\n\n`jd_text` must be at least 50 characters.\n`cover_letter` is optional.\n\nAuto-saves `reportId` and `jobId`.\n\nPoll `/resumes/reports/:report_id` for results."
+          },
+          "response": [
+            {
+              "name": "202 Accepted",
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"report_id\": \"a0a3c58f-3601-4fdf-b858-60654916e1ad\",\n    \"job_id\": \"0eb64c7f-26c9-4944-a699-d7aaa37ea8e8\",\n    \"message\": \"Analysis started. Poll /resumes/reports/:report_id for results.\"\n  }\n}"
+            },
+            {
+              "name": "400 JD too short",
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Job description must be at least 50 characters\",\n  \"code\": \"JD_TOO_SHORT\"\n}"
+            },
+            {
+              "name": "404 Resume not found",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Resume not found\",\n  \"code\": \"RESUME_NOT_FOUND\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Roast Resume",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success) {",
+                  "  pm.collectionVariables.set('reportId', json.data.report_id);",
+                  "  pm.collectionVariables.set('jobId',   json.data.job_id);",
+                  "  pm.test('Roast queued', () => pm.response.to.have.status(202));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"resume_id\": \"{{resumeId}}\",\n  \"jd_text\": \"We are looking for a Node.js backend developer with 2+ years of experience in Express.js and PostgreSQL. The candidate should be familiar with REST API design, cloud deployments, and agile workflows.\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/resumes/roast",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "resumes", "roast"]
+            },
+            "description": "Same as analyze but returns witty, sharp constructive roast comments in `roast_lines`.\n\nAuto-saves `reportId` and `jobId`."
+          },
+          "response": [
+            {
+              "name": "202 Accepted",
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"report_id\": \"uuid\",\n    \"job_id\": \"uuid\",\n    \"message\": \"Roast started. Poll /resumes/reports/:report_id for results.\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Report (poll)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/resumes/reports/{{reportId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "resumes", "reports", "{{reportId}}"]
+            },
+            "description": "Poll for analysis results.\n\n- **202** — still processing\n- **200** — done, full report available"
+          },
+          "response": [
+            {
+              "name": "202 In Progress",
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": { \"status\": \"processing\", \"report\": null, \"message\": \"Analysis in progress\" }\n}"
+            },
+            {
+              "name": "200 Done — analyze",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"status\": \"done\",\n    \"score\": 78,\n    \"analysis_type\": \"analyze\",\n    \"created_at\": \"2026-03-29T18:00:00.000Z\",\n    \"report\": {\n      \"strengths\": [\"Strong Node.js experience\", \"Relevant PostgreSQL skills\"],\n      \"ats_issues\": [\n        { \"issue\": \"Missing action verbs\", \"severity\": \"high\", \"fix\": \"Start bullets with strong verbs like Built, Designed\" }\n      ],\n      \"suggested_bullets\": [\n        { \"section\": \"Experience\", \"original\": \"Worked on backend APIs\", \"improved\": \"Built and deployed 12 RESTful APIs serving 50k+ daily requests\" }\n      ],\n      \"improvement_steps\": [\n        { \"step\": \"Add quantifiable metrics to all experience bullet points\", \"priority\": 1 }\n      ],\n      \"keywords_missing\": [\"Docker\", \"CI/CD\"],\n      \"keywords_matched\": [\"Node.js\", \"PostgreSQL\", \"REST API\"],\n      \"score\": 78,\n      \"score_breakdown\": { \"relevance\": 85, \"formatting\": 70, \"impact\": 75, \"ats_compatibility\": 80 },\n      \"summary\": \"Strong technical foundation but needs impact-driven bullet points.\",\n      \"roast_lines\": []\n    }\n  }\n}"
+            },
+            {
+              "name": "200 Done — roast",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"status\": \"done\",\n    \"score\": 72,\n    \"analysis_type\": \"roast\",\n    \"report\": {\n      \"strengths\": [\"Relevant skills listed\"],\n      \"roast_lines\": [\n        \"Your experience section reads like a job description — tell me what YOU did.\",\n        \"Three years of experience, zero numbers. Were your achievements classified?\"\n      ],\n      \"score\": 72,\n      \"summary\": \"You've got potential, but this resume is playing it way too safe.\"\n    }\n  }\n}"
+            },
+            {
+              "name": "404 Report not found",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Report not found\",\n  \"code\": \"REPORT_NOT_FOUND\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "List Resumes",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/resumes",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "resumes"]
+            },
+            "description": "Returns up to 20 most recent resumes for the authenticated user (newest first)."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"resumes\": [\n      {\n        \"id\": \"uuid\",\n        \"title\": \"My Software Engineer Resume\",\n        \"file_format\": null,\n        \"json_blob\": { \"name\": \"Jane Doe\" },\n        \"created_at\": \"2026-03-29T18:00:00.000Z\"\n      }\n    ]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Delete Resume",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/resumes/{{resumeId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "resumes", "{{resumeId}}"]
+            },
+            "description": "Permanently deletes the resume and all associated reports. If a file resume, also removes from Cloudinary."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": { \"message\": \"Resume deleted\" }\n}"
+            },
+            {
+              "name": "404 Not found",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Resume not found\",\n  \"code\": \"RESUME_NOT_FOUND\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Interview",
+      "description": "Mock interview rooms with AI-scored per-question feedback.\n\n**Full flow:**\n`POST /interview/rooms/create` → record audio via audio pipeline → `POST /rooms/:id/record/start` → `POST /rooms/:id/record/stop` with audio_id → poll `/jobs/:job_id/status` → `GET /rooms/:id/result`\n\n**Quick evaluate (no room):**\n`POST /interview/questions/evaluate` with question_text + answer_text",
+      "item": [
+        {
+          "name": "Create Room",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success) {",
+                  "  pm.collectionVariables.set('roomId', json.data.room_id);",
+                  "  pm.test('Room created', () => pm.response.to.have.status(201));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"duration_mins\": 30,\n  \"job_role\": \"Backend Developer\",\n  \"company\": \"Acme Corp\",\n  \"difficulty\": \"medium\",\n  \"question_count\": 3,\n  \"questions\": [\n    { \"question_text\": \"Tell me about yourself and your backend experience.\" },\n    { \"question_text\": \"How do you handle database performance issues?\" },\n    { \"question_text\": \"Describe a challenging bug you resolved.\" }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/interview/rooms/create",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "interview", "rooms", "create"]
+            },
+            "description": "Create a new interview room. All fields optional.\n\n- `difficulty`: `easy` | `medium` | `hard`\n- `questions`: max 20 items\n\nAuto-saves `roomId` to collection variables."
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"room_id\": \"bc522324-0e05-4384-8136-e4560bd702e9\",\n    \"room_token\": \"481b09863806a3de4c0c9497173e1c40a297c9430326286c\",\n    \"settings\": {\n      \"company\": \"Acme Corp\",\n      \"job_role\": \"Backend Developer\",\n      \"questions\": [\n        { \"question_text\": \"Tell me about yourself.\" }\n      ],\n      \"difficulty\": \"medium\",\n      \"duration_mins\": 30\n    },\n    \"status\": \"created\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Start Recording",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/interview/rooms/{{roomId}}/record/start",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "interview", "rooms", "{{roomId}}", "record", "start"]
+            },
+            "description": "Mark the interview room as recording. No body required.\n\nCall this when the user clicks Start — use this timestamp for the UI timer."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"room_id\": \"uuid\",\n    \"status\": \"recording\",\n    \"start_ts\": \"2026-03-29T18:30:00.000Z\"\n  }\n}"
+            },
+            {
+              "name": "400 Already active",
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Room is already active or completed\",\n  \"code\": \"ROOM_ALREADY_ACTIVE\"\n}"
+            },
+            {
+              "name": "404 Room not found",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Room not found\",\n  \"code\": \"ROOM_NOT_FOUND\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Stop Recording",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success) {",
+                  "  pm.collectionVariables.set('jobId', json.data.job_id);",
+                  "  pm.test('Processing started', () => pm.response.to.have.status(202));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"audio_id\": \"{{audioId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/interview/rooms/{{roomId}}/record/stop",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "interview", "rooms", "{{roomId}}", "record", "stop"]
+            },
+            "description": "Stop recording and trigger AI processing.\n\nRequires `audio_id` from the audio pipeline (`POST /audio/complete`).\n\nAuto-saves `jobId`. Poll `/jobs/:job_id/status` then fetch result."
+          },
+          "response": [
+            {
+              "name": "202 Processing",
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"room_id\": \"uuid\",\n    \"job_id\": \"uuid\",\n    \"status\": \"processing\",\n    \"message\": \"Interview processing started. Poll /jobs/:job_id/status.\"\n  }\n}"
+            },
+            {
+              "name": "400 Not recording",
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Room is not currently recording\",\n  \"code\": \"ROOM_NOT_RECORDING\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Room Result",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/interview/rooms/{{roomId}}/result",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "interview", "rooms", "{{roomId}}", "result"]
+            },
+            "description": "Fetch the interview result. Returns `result: null` if not done yet.\n\nPoll `/jobs/:job_id/status` first and only call this when status = done."
+          },
+          "response": [
+            {
+              "name": "200 Processing",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"room_id\": \"uuid\",\n    \"status\": \"processing\",\n    \"result\": null\n  }\n}"
+            },
+            {
+              "name": "200 Done",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"room_id\": \"uuid\",\n    \"status\": \"done\",\n    \"result\": {\n      \"transcript\": \"Hi, I'm a backend developer with 3 years of experience...\",\n      \"overall_score\": 74,\n      \"summary\": \"Interview completed. 2 question(s) evaluated. Overall score: 74/100.\",\n      \"question_results\": [\n        {\n          \"question\": \"Tell me about yourself.\",\n          \"feedback\": {\n            \"relevance_score\": 80,\n            \"communication_score\": 75,\n            \"structure_score\": 70,\n            \"confidence_indicators\": [\"clear opening\"],\n            \"star_method_used\": false,\n            \"strengths\": [\"Good technical depth\"],\n            \"improvements\": [\"Use STAR method\", \"Be more concise\"],\n            \"model_answer_outline\": \"Current role → 2-3 achievements → why this company\",\n            \"overall_score\": 74,\n            \"one_line_verdict\": \"Solid but needs more structure.\"\n          }\n        }\n      ]\n    }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "List Rooms",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/interview/rooms",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "interview", "rooms"]
+            },
+            "description": "Returns up to 20 most recent interview rooms for the authenticated user."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"rooms\": [\n      {\n        \"id\": \"uuid\",\n        \"status\": \"done\",\n        \"settings\": { \"job_role\": \"Backend Developer\" },\n        \"created_at\": \"2026-03-29T18:00:00.000Z\"\n      }\n    ]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Evaluate Question (no room)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question_text\": \"Explain the difference between SQL and NoSQL databases.\",\n  \"answer_text\": \"SQL databases use structured schemas and support ACID transactions, making them ideal for relational data. NoSQL databases offer flexible schemas and horizontal scaling, better suited for unstructured or high-volume data.\",\n  \"job_role\": \"Backend Developer\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/interview/questions/evaluate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "interview", "questions", "evaluate"]
+            },
+            "description": "Evaluate any question + answer immediately — no room needed.\n\nAt least one of `answer_text` or `audio_id` required.\n\nGreat for browser extensions or quick practice."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"overall_score\": 82,\n    \"feedback\": {\n      \"relevance_score\": 85,\n      \"communication_score\": 80,\n      \"structure_score\": 78,\n      \"confidence_indicators\": [\"uses technical terminology correctly\"],\n      \"star_method_used\": false,\n      \"strengths\": [\"Accurate technical comparison\", \"Clear language\"],\n      \"improvements\": [\"Add a real-world use case\", \"Mention CAP theorem\"],\n      \"model_answer_outline\": \"Define SQL → Define NoSQL → Key differences → Use-case examples\",\n      \"overall_score\": 82,\n      \"one_line_verdict\": \"Good technical answer, could be stronger with real-world context.\"\n    }\n  }\n}"
+            },
+            {
+              "name": "400 No answer provided",
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Provide at least one of answer_text or audio_id\",\n  \"code\": \"ANSWER_REQUIRED\"\n}"
+            },
+            {
+              "name": "202 Audio not ready",
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": { \"message\": \"Audio transcript not ready\" }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Jobs",
+      "description": "Background job management. All AI tasks (transcription, resume analysis, interview scoring) run as background jobs.\n\nUse `GET /jobs/:job_id/status` to poll a specific job and `GET /jobs` to list all recent jobs.",
+      "item": [
+        {
+          "name": "List Jobs",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/jobs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "jobs"]
+            },
+            "description": "Returns the 20 most recent jobs for the authenticated user (newest first).\n\nIncludes all job types: `transcription`, `resume_analyze`, `interview_score`."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"jobs\": [\n      {\n        \"id\": \"uuid\",\n        \"type\": \"resume_analyze\",\n        \"status\": \"done\",\n        \"progress_pct\": 100,\n        \"error_message\": null,\n        \"created_at\": \"2026-03-29T18:00:00.000Z\",\n        \"updated_at\": \"2026-03-29T18:00:30.000Z\"\n      },\n      {\n        \"id\": \"uuid\",\n        \"type\": \"transcription\",\n        \"status\": \"done\",\n        \"progress_pct\": 100,\n        \"error_message\": null,\n        \"created_at\": \"2026-03-29T17:55:00.000Z\",\n        \"updated_at\": \"2026-03-29T17:55:20.000Z\"\n      }\n    ]\n  }\n}"
             }
           ]
         }

@@ -110,6 +110,172 @@ export async function analyzeTranscript(transcriptText, promptText, contextType)
   }
 }
 
+// ─── Resume Analysis ──────────────────────────────────────────────────────────
+
+/**
+ * Extract plain text from a resume file buffer (PDF/DOCX/TXT) via Gemini.
+ * @param {Buffer} fileBuffer
+ * @param {string} mimeType  e.g. 'application/pdf'
+ * @returns {string}
+ */
+export async function extractResumeText(fileBuffer, mimeType) {
+  const model      = getModel();
+  const base64Data = fileBuffer.toString('base64');
+
+  try {
+    const result = await model.generateContent([
+      { inlineData: { mimeType, data: base64Data } },
+      { text: 'Extract all text content from this resume document exactly as written. Return only the plain text with no additional commentary.' },
+    ]);
+    return result.response.text().trim();
+  } catch (err) {
+    const e  = new Error('AI resume text extraction failed');
+    e.code   = 'AI_SERVICE_ERROR';
+    e.status = 502;
+    throw e;
+  }
+}
+
+const RESUME_REPORT_SCHEMA = `{
+  "strengths": ["string"],
+  "ats_issues": [{ "issue": "string", "severity": "high|medium|low", "fix": "string" }],
+  "suggested_bullets": [{ "section": "string", "original": "string|null", "improved": "string" }],
+  "improvement_steps": [{ "step": "string", "priority": 1 }],
+  "keywords_missing": ["string"],
+  "keywords_matched": ["string"],
+  "score": 0,
+  "score_breakdown": { "relevance": 0, "formatting": 0, "impact": 0, "ats_compatibility": 0 },
+  "summary": "string",
+  "roast_lines": []
+}`;
+
+/**
+ * Analyse a resume against a job description using Gemini.
+ * @param {string} resumeText
+ * @param {string} jdText
+ * @param {string|null} coverLetter
+ * @param {'analyze'|'roast'} analysisType
+ */
+export async function analyzeResume(resumeText, jdText, coverLetter, analysisType) {
+  const model = getModel();
+
+  const coverLetterSection = coverLetter
+    ? `Cover Letter: ${coverLetter}`
+    : 'Cover Letter (if provided): Not provided';
+
+  let prompt;
+  if (analysisType === 'roast') {
+    prompt =
+      `You are a brutally honest but constructive career coach with a sharp sense of humour.\n` +
+      `Analyse the resume against the job description. Return ONLY a valid JSON object with no markdown, no backticks, no explanation.\n` +
+      `Fill roast_lines with 3-5 witty, sharp but constructive roast comments about the resume.\n` +
+      `Keep strengths, ats_issues, score, improvement_steps accurate — the roast is the tone, not the facts.\n` +
+      `Make the summary field humorous but still useful.\n` +
+      `JSON schema:\n${RESUME_REPORT_SCHEMA}\n` +
+      `Resume: ${resumeText}\n` +
+      `Job Description: ${jdText}\n` +
+      `${coverLetterSection}`;
+  } else {
+    prompt =
+      `You are an expert ATS resume reviewer and career coach.\n` +
+      `Analyze the following resume against the job description provided.\n` +
+      `Return ONLY a valid JSON object with no markdown, no backticks, no explanation.\n` +
+      `JSON schema:\n${RESUME_REPORT_SCHEMA}\n` +
+      `Resume: ${resumeText}\n` +
+      `Job Description: ${jdText}\n` +
+      `${coverLetterSection}`;
+  }
+
+  let rawText;
+  try {
+    const result = await model.generateContent(prompt);
+    rawText = result.response.text().trim();
+  } catch (err) {
+    const e  = new Error('AI resume analysis service failed');
+    e.code   = 'AI_SERVICE_ERROR';
+    e.status = 502;
+    throw e;
+  }
+
+  const cleaned = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    try {
+      const retry  = await model.generateContent('Return ONLY raw JSON no markdown:\n' + prompt);
+      const raw2   = retry.response.text().trim()
+        .replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+      return JSON.parse(raw2);
+    } catch {
+      const e  = new Error('AI returned malformed resume analysis response');
+      e.code   = 'AI_PARSE_ERROR';
+      e.status = 502;
+      throw e;
+    }
+  }
+}
+
+// ─── Interview Feedback ───────────────────────────────────────────────────────
+
+const INTERVIEW_FEEDBACK_SCHEMA = `{
+  "relevance_score": 0,
+  "communication_score": 0,
+  "structure_score": 0,
+  "confidence_indicators": ["string"],
+  "star_method_used": false,
+  "strengths": ["string"],
+  "improvements": ["string"],
+  "model_answer_outline": "string",
+  "overall_score": 0,
+  "one_line_verdict": "string"
+}`;
+
+/**
+ * Evaluate an interview answer using Gemini.
+ * @param {string} transcriptText  The candidate's spoken answer
+ * @param {string} questionText    The interview question
+ * @param {string} jobRole         e.g. 'Backend Developer'
+ */
+export async function generateInterviewFeedback(transcriptText, questionText, jobRole) {
+  const model  = getModel();
+  const prompt =
+    `You are an expert interview coach evaluating a candidate's answer for a ${jobRole} role.\n` +
+    `Question: ${questionText}\n` +
+    `Candidate's Answer: ${transcriptText}\n` +
+    `Return ONLY a valid JSON object with no markdown, no backticks, no explanation.\n` +
+    `JSON schema:\n${INTERVIEW_FEEDBACK_SCHEMA}`;
+
+  let rawText;
+  try {
+    const result = await model.generateContent(prompt);
+    rawText = result.response.text().trim();
+  } catch (err) {
+    const e  = new Error('AI interview feedback service failed');
+    e.code   = 'AI_SERVICE_ERROR';
+    e.status = 502;
+    throw e;
+  }
+
+  const cleaned = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    try {
+      const retry  = await model.generateContent('Return ONLY raw JSON no markdown:\n' + prompt);
+      const raw2   = retry.response.text().trim()
+        .replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+      return JSON.parse(raw2);
+    } catch {
+      const e  = new Error('AI returned malformed interview feedback response');
+      e.code   = 'AI_PARSE_ERROR';
+      e.status = 502;
+      throw e;
+    }
+  }
+}
+
 const COMPARE_SCHEMA = `{
   "accuracy_pct": 0-100,
   "word_error_rate": 0.0-1.0,
