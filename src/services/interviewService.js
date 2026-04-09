@@ -11,6 +11,74 @@ function badRequest(msg, code) {
   return Object.assign(new Error(msg), { status: 400, code });
 }
 
+// ─── Interview Config ─────────────────────────────────────────────────────────
+
+/**
+ * Return Gemini credentials + voice map so the client can connect to Gemini Live.
+ * Gated behind JWT auth — key never hits the frontend env.
+ */
+export function getConfig() {
+  return {
+    gemini_api_key: process.env.GEMINI_API_KEY,
+    live_model:     'gemini-2.5-flash-native-audio-preview-09-2025',
+    analysis_model: 'gemini-2.5-flash-preview-05-20',
+    voices: {
+      emma: 'Kore',
+      john: 'Puck',
+    },
+  };
+}
+
+// ─── Interview Question Cache ─────────────────────────────────────────────────
+
+const questionCache = new Map();
+const CACHE_TTL_MS  = 60 * 60 * 1000; // 1 hour
+
+/**
+ * Generate (or return cached) interview questions for a role/round/difficulty combo.
+ * @param {string} role
+ * @param {string} round
+ * @param {string} difficulty
+ */
+export async function getInterviewQuestions(role, round, difficulty) {
+  const cacheKey = `${role}:${round}:${difficulty}`.toLowerCase();
+  const cached   = questionCache.get(cacheKey);
+
+  if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) {
+    return cached.data;
+  }
+
+  const data = await geminiService.generateInterviewQuestions(role, round, difficulty);
+  questionCache.set(cacheKey, { data, cachedAt: Date.now() });
+  return data;
+}
+
+// ─── Save Live Interview Report ───────────────────────────────────────────────
+
+/**
+ * Persist the client-generated transcript + analysis report to the interview_rooms row.
+ * @param {string} roomId
+ * @param {string} userId
+ * @param {Array}  transcript  Array of { role, text } objects
+ * @param {object} report      { score, feedback, strengths, improvements, ... }
+ */
+export async function saveReport(roomId, userId, transcript, report) {
+  const { rows } = await pool.query(
+    'SELECT id, status FROM interview_rooms WHERE id = $1 AND host_id = $2',
+    [roomId, userId]
+  );
+  if (!rows[0]) throw notFound('Room not found', 'ROOM_NOT_FOUND');
+
+  await pool.query(
+    `UPDATE interview_rooms
+     SET status = 'done', end_ts = COALESCE(end_ts, now()), result_json = $1
+     WHERE id = $2`,
+    [JSON.stringify({ transcript, report }), roomId]
+  );
+
+  return { room_id: roomId, status: 'done' };
+}
+
 export async function createRoom(userId, settings) {
   const { rows } = await pool.query(
     `INSERT INTO interview_rooms (host_id, settings, status)

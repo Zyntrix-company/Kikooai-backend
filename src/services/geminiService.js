@@ -276,6 +276,59 @@ export async function generateInterviewFeedback(transcriptText, questionText, jo
   }
 }
 
+// ─── Interview Question Generation ───────────────────────────────────────────
+
+const INTERVIEW_QUESTIONS_SCHEMA = `[
+  { "question": "string", "difficulty": "Easy|Medium|Hard", "category": "string" }
+]`;
+
+/**
+ * Generate role-specific interview questions via Gemini.
+ * @param {string} role        e.g. 'Backend Developer'
+ * @param {string} round       e.g. 'Technical', 'HR', 'Coding', 'System Design'
+ * @param {string} difficulty  'Easy' | 'Medium' | 'Hard'
+ * @returns {{ questions: Array<{ question, difficulty, category }> }}
+ */
+export async function generateInterviewQuestions(role, round, difficulty) {
+  const model  = getModel();
+  const prompt =
+    `You are an expert technical recruiter. Generate 12 realistic interview questions for a ${role} candidate.\n` +
+    `Round type: ${round}\nDifficulty level: ${difficulty}\n` +
+    `Mix question categories relevant to the role and round type.\n` +
+    `Return ONLY a valid JSON array — no markdown, no backticks, no explanation.\n` +
+    `Schema: ${INTERVIEW_QUESTIONS_SCHEMA}`;
+
+  let rawText;
+  try {
+    const result = await model.generateContent(prompt);
+    rawText = result.response.text().trim();
+  } catch (err) {
+    const e  = new Error('AI question generation failed');
+    e.code   = 'AI_SERVICE_ERROR';
+    e.status = 502;
+    throw e;
+  }
+
+  const cleaned = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+
+  try {
+    const questions = JSON.parse(cleaned);
+    return { questions };
+  } catch {
+    try {
+      const retry  = await model.generateContent('Return ONLY raw JSON array no markdown:\n' + prompt);
+      const raw2   = retry.response.text().trim()
+        .replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+      return { questions: JSON.parse(raw2) };
+    } catch {
+      const e  = new Error('AI returned malformed questions response');
+      e.code   = 'AI_PARSE_ERROR';
+      e.status = 502;
+      throw e;
+    }
+  }
+}
+
 const COMPARE_SCHEMA = `{
   "accuracy_pct": 0-100,
   "word_error_rate": 0.0-1.0,

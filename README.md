@@ -2,7 +2,7 @@
 
 Production-ready REST API for **KikooAI** — an AI-powered English learning + interview prep platform.
 
-Features: text exercises, XP progression, streaks, direct audio upload, real-time transcription via Gemini AI, structured speaking feedback, resume analysis & roasting, mock interview scoring, and an in-process job queue — all on a serverless Postgres database.
+Features: text exercises, XP progression, streaks, personalized daily assignments, direct audio upload, real-time transcription via Gemini AI, structured speaking feedback, resume analysis & roasting, live AI interview (Gemini Live), mock interview scoring, and an in-process job queue — all on a serverless Postgres database.
 
 ---
 
@@ -51,16 +51,18 @@ src/
 │   ├── audio.js             # /audio/* and /jobs/:id/status
 │   ├── resumes.js           # /resumes/*
 │   ├── interview.js         # /interview/*
-│   └── jobs.js              # /jobs (list)
+│   ├── jobs.js              # /jobs (list)
+│   └── assignments.js       # /assignments/daily
 ├── services/
 │   ├── authService.js       # Auth DB logic (signup, login, refresh, profile)
 │   ├── exerciseService.js   # Exercise + energy + streak + speaking evaluation
 │   ├── cloudinaryService.js # Signed upload (audio+resume), verify, download, delete
-│   ├── geminiService.js     # Transcribe audio, analyse transcript, resume analysis, interview feedback
+│   ├── geminiService.js     # Transcribe, analyse transcript, resume analysis, interview feedback + question generation
 │   ├── resumeService.js     # Resume CRUD + report creation + text extraction
-│   └── interviewService.js  # Room lifecycle + scraped question evaluator
-├── seeds/
-│   └── exercises.js         # Sample exercise data (idempotent)
+│   ├── interviewService.js  # Room lifecycle + config + question cache + report save
+│   └── assignmentService.js # Personalized daily assignment builder (XP-based)
+├── db/
+│   └── seed.js              # Exercise seed data — run once with npm run seed
 ├── utils/
 │   ├── cloudinary.js        # Pre-configured Cloudinary v2 instance
 │   ├── gemini.js            # Gemini model factory
@@ -95,13 +97,13 @@ npm run migrate
 
 Migrations are tracked in a `migrations_run` table — each file runs in a transaction and is skipped if already applied.
 
-### 4. Seed exercise data (optional)
+### 4. Seed exercise data (required for exercises + assignments)
 
 ```bash
-node src/seeds/exercises.js
+npm run seed
 ```
 
-Inserts 9 sample exercises (3 × fillup, jumbled_word, vocab). Idempotent — safe to re-run.
+Inserts 36 exercise seeds covering all 9 types across easy/medium/hard difficulties, plus 6 speaking prompts. Must be run at least once before testing exercises or daily assignments.
 
 ### 5. Start the server
 
@@ -345,9 +347,117 @@ Deletes from Cloudinary (if file resume) and DB (cascades to resume_reports).
 
 ---
 
+### Assignments
+
+#### `GET /api/v1/assignments/daily` 🔒
+
+Returns a personalized daily exercise set based on the user's XP level.
+
+**XP → difficulty mapping:**
+
+| XP | Difficulty | CEFR |
+|---|---|---|
+| ≤ 300 | easy | A1/A2 |
+| ≤ 1500 | medium | B1/B2 |
+| > 1500 | hard | C1/C2 |
+
+Returns 6 exercises (1× fillup, jumbled_sentence, vocab, synonyms, grammar_transform, speaking_prompt). Falls back to medium/easy if no seed exists at the user's level. `answer_key` is stripped.
+
+**200** →
+```json
+{
+  "level": { "xp": 450, "cefr": "B1/B2", "difficulty": "medium", "daily_energy_used": 3 },
+  "assignments": [
+    { "type": "fillup", "seed": { "id": "uuid", "type": "fillup", "difficulty": "medium", "payload": { ... } } },
+    { "type": "jumbled_sentence", "seed": { ... } },
+    { "type": "vocab", "seed": { ... } },
+    { "type": "synonyms", "seed": { ... } },
+    { "type": "grammar_transform", "seed": { ... } },
+    { "type": "speaking_prompt", "seed": { ... } }
+  ],
+  "progress": { "completed_today": 3, "total": 6 }
+}
+```
+
+Submit each assignment using the existing `POST /api/v1/exercises/:type/submit` endpoint with the seed's `id`.
+
+---
+
 ### Interview
 
 All interview routes require authentication.
+
+#### `GET /api/v1/interview/config` 🔒
+
+Returns Gemini credentials for the client to open a Gemini Live audio session directly.
+
+**200** →
+```json
+{
+  "gemini_api_key": "AIza...",
+  "live_model": "gemini-2.5-flash-native-audio-preview-09-2025",
+  "analysis_model": "gemini-2.5-flash-preview-05-20",
+  "voices": { "emma": "Kore", "john": "Puck" }
+}
+```
+
+---
+
+#### `GET /api/v1/interview/questions?role=&round=&difficulty=` 🔒
+
+Returns 12 AI-generated interview questions for the given combination. Results are **cached in-memory for 1 hour** per unique `role+round+difficulty` key.
+
+| Param | Default | Notes |
+|---|---|---|
+| `role` | — | **Required** |
+| `round` | `Technical` | e.g. HR, Coding, System Design |
+| `difficulty` | `Medium` | Easy · Medium · Hard |
+
+**200** → `{ questions: [{ question, difficulty, category }] }`
+**400** → `MISSING_ROLE`
+**502** → `AI_SERVICE_ERROR` / `AI_PARSE_ERROR`
+
+---
+
+#### `POST /api/v1/interview/rooms/:room_id/save-report` 🔒
+
+Saves the client-generated transcript and analysis report after a Gemini Live session ends. Sets room `status = done`.
+
+```json
+{
+  "transcript": [
+    { "role": "Dr. Emma", "text": "Tell me about yourself." },
+    { "role": "You", "text": "I am a backend developer..." }
+  ],
+  "report": {
+    "score": 78,
+    "feedback": "Strong technical answers.",
+    "strengths": ["Clear articulation"],
+    "improvements": ["More detail on system design"],
+    "technicalAccuracy": "Strong",
+    "communicationStyle": "Confident"
+  }
+}
+```
+
+**200** → `{ room_id, status: "done" }`
+
+---
+
+#### Live Interview End-to-End Flow
+
+```
+1. POST /interview/rooms/create        { job_role, round, difficulty, duration }
+2. GET  /interview/config              ← Gemini key + voice
+3. GET  /interview/questions?role=...  ← 12 AI questions (cached)
+4. POST /interview/rooms/:id/record/start
+5. [Gemini Live runs client ↔ Gemini directly — no backend proxy]
+6. POST /interview/rooms/:id/record/stop  { audio_id }   (optional, if audio recorded)
+7. POST /interview/rooms/:id/save-report  { transcript, report }
+8. GET  /interview/rooms/:id/result       ← fetch saved result anytime
+```
+
+---
 
 #### `POST /api/v1/interview/rooms/create` 🔒
 
@@ -540,7 +650,9 @@ job_listings
 | `JOB_NOT_FOUND` | 404 | Job doesn't exist or wrong owner |
 | `RESUME_NOT_FOUND` | 404 | Resume doesn't exist or wrong owner |
 | `REPORT_NOT_FOUND` | 404 | Resume report doesn't exist or wrong owner |
+| `ANALYSIS_FAILED` | 500 | Resume report job completed with failure |
 | `ROOM_NOT_FOUND` | 404 | Interview room doesn't exist or wrong owner |
+| `MISSING_ROLE` | 400 | `role` query param missing on /interview/questions |
 | `ROOM_ALREADY_ACTIVE` | 400 | Room is already recording or completed |
 | `ROOM_NOT_RECORDING` | 400 | Tried to stop a non-recording room |
 | `ANSWER_REQUIRED` | 400 | Neither `answer_text` nor `audio_id` provided |
@@ -575,7 +687,7 @@ Import `KikooAI.postman_collection.json` from the project root.
 |---|---|
 | `accessToken` | Login / Signup |
 | `refreshToken` | Login / Signup |
-| `seedId` | Get any exercise seed |
+| `seedId` | Get any exercise seed · Get Daily Assignment (first seed) |
 | `uploadId` | Audio upload-init |
 | `audioId` | Audio complete |
 | `jobId` | Audio complete / Resume analyze / Interview stop |
@@ -604,7 +716,7 @@ See [`FRONTEND_IMPLEMENTATION_GUIDE.md`](./FRONTEND_IMPLEMENTATION_GUIDE.md) for
 npm run dev       # Start with nodemon (hot reload)
 npm start         # Start for production
 npm run migrate   # Run pending SQL migrations
-node src/seeds/exercises.js   # Seed sample exercise data
+npm run seed      # Seed exercise data (run once after migrate)
 ```
 
 ---
@@ -616,3 +728,4 @@ node src/seeds/exercises.js   # Seed sample exercise data
 | **M1 — Core Platform** | ✅ Done | Auth (JWT + refresh), user profiles, XP/streak/badges, text exercises (9 types), energy system, Postman collection |
 | **M2 — Audio & AI** | ✅ Done | Direct Cloudinary upload, Gemini transcription, structured speaking feedback, in-process job queue, speaking evaluation, GDPR delete |
 | **M3 — Interview Prep** | ✅ Done | Resume upload (file + JSON), resume analysis & roast (AI), mock interview rooms, per-question AI scoring, scraped question evaluator, frontend implementation guide |
+| **M4 — Live Interview + Assignments** | ✅ Done | Personalized daily assignments (XP-based), Gemini Live config endpoint, AI question generation (cached), live interview report save, Cloudinary signature fix, exercise seed data |

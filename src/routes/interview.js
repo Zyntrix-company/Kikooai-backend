@@ -10,6 +10,20 @@ const router = Router();
 
 // ─── Validation schemas ──────────────────────────────────────────────────────
 
+const saveReportSchema = Joi.object({
+  transcript: Joi.array().items(
+    Joi.object({ role: Joi.string().required(), text: Joi.string().required() })
+  ).required(),
+  report: Joi.object({
+    score:               Joi.number().required(),
+    feedback:            Joi.string().required(),
+    strengths:           Joi.array().items(Joi.string()).required(),
+    improvements:        Joi.array().items(Joi.string()).required(),
+    technicalAccuracy:   Joi.string().optional().allow(''),
+    communicationStyle:  Joi.string().optional().allow(''),
+  }).required(),
+});
+
 const createRoomSchema = Joi.object({
   duration_mins:  Joi.number().min(1).max(120).optional(),
   question_count: Joi.number().min(1).max(20).optional(),
@@ -30,6 +44,46 @@ const evaluateSchema = Joi.object({
   answer_text:   Joi.string().optional(),
   audio_id:      Joi.string().uuid().optional(),
   job_role:      Joi.string().optional(),
+});
+
+// ─── GET /interview/config ────────────────────────────────────────────────────
+// Returns Gemini API key + voice map so the client can open a Gemini Live session.
+
+router.get('/interview/config', auth, (req, res) => {
+  return success(res, interviewService.getConfig());
+});
+
+// ─── GET /interview/questions ─────────────────────────────────────────────────
+// Returns AI-generated questions for a role/round/difficulty (cached 1 hour).
+// Query params: role (required), round (optional), difficulty (optional)
+
+router.get('/interview/questions', auth, async (req, res, next) => {
+  try {
+    const { role, round = 'Technical', difficulty = 'Medium' } = req.query;
+    if (!role) return fail(res, 'role query param is required', 'MISSING_ROLE', 400);
+
+    const data = await interviewService.getInterviewQuestions(role, round, difficulty);
+    return success(res, data);
+  } catch (err) {
+    if (err.code === 'AI_SERVICE_ERROR' || err.code === 'AI_PARSE_ERROR') {
+      return fail(res, err.message, err.code, 502);
+    }
+    next(err);
+  }
+});
+
+// ─── POST /interview/rooms/:room_id/save-report ───────────────────────────────
+// Client calls this after the live session ends with the full transcript + report.
+
+router.post('/interview/rooms/:room_id/save-report', auth, validate(saveReportSchema), async (req, res, next) => {
+  try {
+    const { transcript, report } = req.body;
+    const result = await interviewService.saveReport(req.params.room_id, req.user.id, transcript, report);
+    return success(res, result);
+  } catch (err) {
+    if (err.code === 'ROOM_NOT_FOUND') return fail(res, err.message, err.code, 404);
+    next(err);
+  }
 });
 
 // ─── POST /interview/rooms/create ─────────────────────────────────────────────

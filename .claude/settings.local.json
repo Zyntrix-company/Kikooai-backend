@@ -24,7 +24,10 @@
       "Bash(JOB_ID=\"d199ad3c-3865-4bc0-af49-e63135a5433b\")",
       "Bash(__NEW_LINE_dfe93584bb989b02__ echo:*)",
       "Bash(curl -s \"http://localhost:3000/api/v1/jobs/$JOB_ID/status\" -H \"Authorization: Bearer $TOKEN\")",
-      "Bash(ls D:/Kikooai/backend/*.md D:/Kikooai/backend/*.json)"
+      "Bash(ls D:/Kikooai/backend/*.md D:/Kikooai/backend/*.json)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(curl:*)",
+      "Bash(ls D:/Kikooai/backend/*.json D:/Kikooai/backend/*.md)"
     ]
   }
 }
