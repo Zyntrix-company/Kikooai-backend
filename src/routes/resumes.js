@@ -126,6 +126,10 @@ router.get('/resumes/reports/:report_id', auth, async (req, res, next) => {
   try {
     const report = await resumeService.getReport(req.params.report_id, req.user.id);
 
+    if (report.status === 'failed') {
+      return fail(res, 'Analysis failed', 'ANALYSIS_FAILED', 500);
+    }
+
     if (report.status !== 'done') {
       return res.status(202).json({
         success: true,

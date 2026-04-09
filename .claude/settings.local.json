@@ -16,7 +16,15 @@
       "Bash(__NEW_LINE_7992da714c7e71e8__ echo:*)",
       "Bash(curl -s -X POST http://localhost:3000/api/v1/audio/complete -H \"Authorization: Bearer $TOKEN\" -H \"Content-Type: application/json\" -d \"{\"\"upload_id\"\":\"\"$UPLOAD_ID\"\",\"\"cloudinary_public_id\"\":\"\"test/fake\"\",\"\"cloudinary_url\"\":\"\"https://res.cloudinary.com/test/fake.webm\"\",\"\"format\"\":\"\"webm\"\"}\")",
       "Bash(ls d:/Kikooai/backend/*.json d:/Kikooai/backend/*.md)",
-      "Bash(netstat -ano)"
+      "Bash(netstat -ano)",
+      "Bash(python3 -m json.tool)",
+      "Bash(node:*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjdkM2Q5NGE4LWFlNTktNDA1Ny1iZDY0LTU0ZWRjMzYzYjM0NSIsImVtYWlsIjoibTN0ZXN0QGV4YW1wbGUuY29tIiwiaXNfYWRtaW4iOmZhbHNlLCJpYXQiOjE3NzQ4MDg5ODUsImV4cCI6MTc3NDgwOTg4NX0.MHHB7uwJVkonHDTdZ58CrKTCp0Pk5Dc5C8VSqbor6jk\")",
+      "Bash(REPORT_ID=\"4f2aa5b5-9b11-4cec-93ad-450ef67f9b66\")",
+      "Bash(JOB_ID=\"d199ad3c-3865-4bc0-af49-e63135a5433b\")",
+      "Bash(__NEW_LINE_dfe93584bb989b02__ echo:*)",
+      "Bash(curl -s \"http://localhost:3000/api/v1/jobs/$JOB_ID/status\" -H \"Authorization: Bearer $TOKEN\")",
+      "Bash(ls D:/Kikooai/backend/*.md D:/Kikooai/backend/*.json)"
     ]
   }
 }

@@ -20,12 +20,10 @@ export async function generateUploadSignature(userId, contextType) {
   const folder    = `${AUDIO_FOLDER}/${userId}`;
   const tags      = `user_${userId},${contextType}`;
 
-  const paramsToSign = {
-    folder,
-    resource_type: 'video',
-    tags,
-    timestamp,
-  };
+  // Only sign params the client will actually include in the upload request.
+  // resource_type goes in the URL (not the form body), so it must NOT be signed.
+  // tags would need to be sent by the client too — omit to keep the contract simple.
+  const paramsToSign = { folder, timestamp };
 
   const signature = cloudinary.utils.api_sign_request(
     paramsToSign,
@@ -101,13 +99,8 @@ export async function generateResumeUploadSignature(userId) {
   const folder    = `kikoo/resumes/${userId}`;
   const tags      = `user_${userId},resume`;
 
-  const paramsToSign = {
-    allowed_formats: 'pdf,docx,txt',
-    folder,
-    resource_type: 'raw',
-    tags,
-    timestamp,
-  };
+  // Only sign params the client will actually send in the upload request.
+  const paramsToSign = { folder, timestamp };
 
   const signature = cloudinary.utils.api_sign_request(
     paramsToSign,
