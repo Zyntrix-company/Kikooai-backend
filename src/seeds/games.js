@@ -126,6 +126,86 @@ const seeds = [
     },
   },
 
+  // ─── conexo (hard) — technology, cooking, animal sounds, capitals ────────────
+  {
+    type: 'conexo',
+    difficulty: 'hard',
+    config: { group_count: 4, words_per_group: 4 },
+    seed_json: {
+      groups: [
+        { category: 'Technology',    words: ['browser', 'server', 'kernel', 'cache'] },
+        { category: 'Cooking verbs', words: ['sauté', 'braise', 'blanch', 'deglaze'] },
+        { category: 'Animal sounds', words: ['neigh', 'bray', 'bleat', 'croak'] },
+        { category: 'Capital cities', words: ['Ottawa', 'Canberra', 'Nairobi', 'Lisbon'] },
+      ],
+      mixed_words: [
+        'browser', 'sauté',    'neigh',    'Ottawa',
+        'server',  'braise',   'bray',     'Canberra',
+        'kernel',  'blanch',   'bleat',    'Nairobi',
+        'cache',   'deglaze',  'croak',    'Lisbon',
+      ],
+      answer_key: {
+        Technology:     ['browser', 'server', 'kernel', 'cache'],
+        'Cooking verbs': ['sauté', 'braise', 'blanch', 'deglaze'],
+        'Animal sounds': ['neigh', 'bray', 'bleat', 'croak'],
+        'Capital cities': ['Ottawa', 'Canberra', 'Nairobi', 'Lisbon'],
+      },
+    },
+  },
+
+  // ─── speed_reading (hard) ────────────────────────────────────────────────────
+  {
+    type: 'speed_reading',
+    difficulty: 'hard',
+    config: { time_seconds: 120 },
+    seed_json: {
+      text: 'Quantum computing represents a fundamental departure from classical computing paradigms, exploiting the principles of quantum mechanics to process information in ways that would be impossible for conventional machines. Unlike classical bits, which exist in a binary state of either zero or one, quantum bits — or qubits — can exist in a superposition of both states simultaneously. This property, combined with quantum entanglement and interference, allows quantum computers to solve certain computational problems exponentially faster than any classical system. Research institutions and technology companies have invested billions of dollars in developing practical quantum hardware, with notable milestones achieved in error correction, qubit coherence times, and circuit depth. Despite these advances, fully fault-tolerant quantum computers capable of running complex algorithms at scale remain years away. The most promising near-term applications include drug discovery, materials science, and cryptography — particularly the ability to factor large integers, which underpins widely used public-key encryption schemes. This capability has spurred significant investment in post-quantum cryptographic standards by governments and standards bodies worldwide.',
+      word_count: 151,
+      answer_key: null,
+    },
+  },
+
+  // ─── contextooo (easy) ───────────────────────────────────────────────────────
+  {
+    type: 'contextooo',
+    difficulty: 'easy',
+    config: {},
+    seed_json: {
+      secret_word: 'sun',
+      hint: 'The nearest star to Earth — source of light and warmth',
+      max_guesses: 10,
+      answer_key: 'sun',
+    },
+  },
+
+  // ─── word_blitz (medium) ─────────────────────────────────────────────────────
+  {
+    type: 'word_blitz',
+    difficulty: 'medium',
+    config: { time_seconds: 60, lives: 3 },
+    seed_json: {
+      letters: ['B', 'R', 'E', 'A', 'K', 'S'],
+      valid_words: [
+        'are', 'ares', 'ark', 'arks', 'arse',
+        'ask', 'bake', 'baker', 'bakers', 'bare', 'bares',
+        'bark', 'barks', 'bars', 'base', 'baser', 'bask',
+        'bear', 'bears', 'brake', 'brakes', 'break', 'breaks',
+        'ear', 'ears', 'era', 'eras',
+        'rake', 'rakes', 'sake', 'sea', 'sear',
+      ],
+      time_seconds: 60,
+      lives: 3,
+      answer_key: [
+        'are', 'ares', 'ark', 'arks', 'arse',
+        'ask', 'bake', 'baker', 'bakers', 'bare', 'bares',
+        'bark', 'barks', 'bars', 'base', 'baser', 'bask',
+        'bear', 'bears', 'brake', 'brakes', 'break', 'breaks',
+        'ear', 'ears', 'era', 'eras',
+        'rake', 'rakes', 'sake', 'sea', 'sear',
+      ],
+    },
+  },
+
   // ─── guess_the_word ──────────────────────────────────────────────────────────
   {
     type: 'guess_the_word',
@@ -149,6 +229,18 @@ const seeds = [
       max_guesses: 6,
       letter_count: 9,
       answer_key: 'labyrinth',
+    },
+  },
+  {
+    type: 'guess_the_word',
+    difficulty: 'hard',
+    config: {},
+    seed_json: {
+      word: 'whisper',
+      hint: 'To speak very quietly so only those nearby can hear',
+      max_guesses: 6,
+      letter_count: 7,
+      answer_key: 'whisper',
     },
   },
 ];

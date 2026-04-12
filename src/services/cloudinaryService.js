@@ -140,6 +140,60 @@ export async function verifyRawAsset(publicId) {
 }
 
 /**
+ * Upload a Buffer directly to Cloudinary as a raw asset (server-side).
+ * Used for exports and other server-generated files.
+ * @param {Buffer} buffer
+ * @param {string} publicId  e.g. 'kikoo/exports/my-file'
+ * @param {string} [mimeType]  e.g. 'text/csv'
+ * @returns {{ secureUrl: string, publicId: string }}
+ */
+export async function uploadBufferAsRaw(buffer, publicId, mimeType = 'text/csv') {
+  const b64    = buffer.toString('base64');
+  const dataUri = `data:${mimeType};base64,${b64}`;
+
+  try {
+    const result = await cloudinary.uploader.upload(dataUri, {
+      resource_type: 'raw',
+      public_id:     publicId,
+      overwrite:     true,
+    });
+    return { secureUrl: result.secure_url, publicId: result.public_id };
+  } catch (err) {
+    const e  = new Error(err?.message || 'Failed to upload file to Cloudinary');
+    e.code   = 'CLOUDINARY_ERROR';
+    e.status = 500;
+    throw e;
+  }
+}
+
+/**
+ * Delete all Cloudinary assets belonging to a user (GDPR erasure).
+ * Audio files are stored as 'video' resource type; resumes as 'raw'.
+ * Best-effort: errors are logged but not re-thrown.
+ * @param {string} userId
+ */
+export async function deleteUserAssets(userId) {
+  const results = {};
+  try {
+    results.audio = await cloudinary.api.delete_resources_by_prefix(
+      `kikoo/audio/${userId}`,
+      { resource_type: 'video' }
+    );
+  } catch (err) {
+    console.error(`[cloudinary] Failed to delete audio for user ${userId}:`, err?.message);
+  }
+  try {
+    results.resumes = await cloudinary.api.delete_resources_by_prefix(
+      `kikoo/resumes/${userId}`,
+      { resource_type: 'raw' }
+    );
+  } catch (err) {
+    console.error(`[cloudinary] Failed to delete resumes for user ${userId}:`, err?.message);
+  }
+  return results;
+}
+
+/**
  * Download a Cloudinary raw asset (resume file) as a Buffer.
  * @param {string} publicId
  * @returns {{ buffer: Buffer, format: string }}

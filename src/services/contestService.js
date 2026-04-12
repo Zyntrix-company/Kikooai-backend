@@ -1,4 +1,6 @@
 import pool from '../db/pool.js';
+import { generateCertificate } from './certificateService.js';
+import { uploadBufferAsRaw } from './cloudinaryService.js';
 
 // ─── Error helpers ────────────────────────────────────────────────────────────
 
@@ -208,6 +210,7 @@ export async function getLeaderboard(token, userId) {
             cp.score,
             cp.user_id,
             cp.joined_at,
+            cp.certificate_url,
             u.username,
             u.fullname
      FROM contest_participants cp
@@ -290,18 +293,23 @@ export async function completeContest(token, adminId) {
     [contest.id]
   );
 
-  // Prize distribution — find rank-1 participant
+  // Prize distribution — find rank-1 participants (ties share rank 1)
   const { rows: winners } = await pool.query(
-    'SELECT user_id FROM contest_participants WHERE contest_id = $1 AND rank = 1',
+    `SELECT cp.user_id, cp.rank, u.fullname, u.username
+     FROM contest_participants cp
+     JOIN users u ON u.id = cp.user_id
+     WHERE cp.contest_id = $1 AND cp.rank = 1`,
     [contest.id]
   );
 
-  const prizeType = contest.prize_info?.prize_type;
-  const proDays   = parseInt(contest.prize_info?.pro_days || '30', 10);
-  const awarded   = [];
+  const prizeType  = contest.prize_info?.prize_type;
+  const proDays    = parseInt(contest.prize_info?.pro_days || '30', 10);
+  const awarded    = [];
+  const completedAt = new Date().toISOString();
 
-  if (prizeType === 'pro' && winners.length > 0) {
-    for (const winner of winners) {
+  for (const winner of winners) {
+    // Grant Pro subscription
+    if (prizeType === 'pro') {
       await pool.query(
         `UPDATE profiles
          SET subscription_status = 'pro',
@@ -309,8 +317,24 @@ export async function completeContest(token, adminId) {
          WHERE user_id = $2`,
         [proDays, winner.user_id]
       );
-      awarded.push(winner.user_id);
     }
+
+    // Generate and upload certificate (best-effort)
+    try {
+      const winnerName = winner.fullname || winner.username || 'Winner';
+      const pdfBuffer  = await generateCertificate(contest.title, winnerName, winner.rank, completedAt);
+      const publicId   = `kikoo/certificates/${contest.id}-${winner.user_id}`;
+      const { secureUrl } = await uploadBufferAsRaw(pdfBuffer, publicId, 'application/pdf');
+
+      await pool.query(
+        'UPDATE contest_participants SET certificate_url = $1 WHERE contest_id = $2 AND user_id = $3',
+        [secureUrl, contest.id, winner.user_id]
+      );
+    } catch (certErr) {
+      console.error(`[contest] Certificate failed for user ${winner.user_id}:`, certErr.message);
+    }
+
+    awarded.push(winner.user_id);
   }
 
   await logAdminAction(adminId, 'complete_contest', 'contest', contest.id, {

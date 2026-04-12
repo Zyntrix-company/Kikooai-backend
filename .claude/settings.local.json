@@ -27,7 +27,9 @@
       "Bash(ls D:/Kikooai/backend/*.md D:/Kikooai/backend/*.json)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(curl:*)",
-      "Bash(ls D:/Kikooai/backend/*.json D:/Kikooai/backend/*.md)"
+      "Bash(ls D:/Kikooai/backend/*.json D:/Kikooai/backend/*.md)",
+      "Bash(grep -n \"CREATE TABLE jobs\" D:/Kikooai/backend/src/migrations/*.sql)",
+      "Bash(npm run:*)"
     ]
   }
 }

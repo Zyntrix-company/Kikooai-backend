@@ -1,0 +1,1966 @@
+openapi: 3.0.3
+info:
+  title: Kikoo AI Backend API
+  version: 1.0.0
+  description: >
+    RESTful API powering the Kikoo AI platform — interview preparation, English
+    learning, mini-games, and contests. All authenticated endpoints require a
+    Bearer JWT in the Authorization header obtained from /auth/login or /auth/signup.
+
+servers:
+  - url: https://kikooai-backend.onrender.com/api/v1
+    description: Production
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    SuccessEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+
+    ErrorEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        code:
+          type: string
+
+    User:
+      type: object
+      properties:
+        id:         { type: string, format: uuid }
+        email:      { type: string, format: email }
+        username:   { type: string }
+        fullname:   { type: string }
+        role:       { type: string, enum: [student, job_seeker, professional] }
+        is_banned:  { type: boolean }
+        is_flagged: { type: boolean }
+        is_admin:   { type: boolean }
+        created_at: { type: string, format: date-time }
+        last_active:{ type: string, format: date-time }
+
+    Profile:
+      type: object
+      properties:
+        user_id:             { type: string, format: uuid }
+        interests:           { type: array, items: { type: string } }
+        education:           { type: object }
+        motive:              { type: string }
+        targets:             { type: object }
+        resume_ref:          { type: string, format: uuid, nullable: true }
+        subscription_status: { type: string, enum: [free, pro, pro_trial] }
+        pro_expires_at:      { type: string, format: date-time, nullable: true }
+        streak:              { type: integer }
+        xp:                  { type: integer }
+        daily_energy_count:  { type: integer }
+        badges:              { type: array, items: { type: object } }
+
+    Tokens:
+      type: object
+      properties:
+        accessToken:  { type: string }
+        refreshToken: { type: string }
+
+tags:
+  - name: auth
+    description: Authentication and session management
+  - name: users
+    description: User profile management
+  - name: exercises
+    description: English learning exercises — seed, submit, speaking
+  - name: audio
+    description: Audio upload pipeline and transcription
+  - name: resumes
+    description: Resume storage, analysis, and roast
+  - name: interview
+    description: Interview rooms, question generation, and evaluation
+  - name: games
+    description: Mini-game seeds and score submission
+  - name: contests
+    description: Admin-created competitions with leaderboards and prizes
+  - name: admin
+    description: Admin-only user management, logs, exports, and promo codes
+  - name: jobs
+    description: Background job status
+  - name: assignments
+    description: Daily personalised exercise assignments
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AUTH
+# ─────────────────────────────────────────────────────────────────────────────
+paths:
+  /auth/signup:
+    post:
+      operationId: authSignup
+      summary: Register a new user
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, username, fullname, role]
+              properties:
+                email:    { type: string, format: email, example: alice@example.com }
+                password: { type: string, minLength: 8, example: securePass1 }
+                username: { type: string, minLength: 3, maxLength: 30, example: alice99 }
+                fullname: { type: string, example: Alice Smith }
+                role:     { type: string, enum: [student, job_seeker, professional] }
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  user: { id: "a1b2c3d4-...", email: "alice@example.com", username: "alice99", fullname: "Alice Smith", role: "student", is_banned: false, is_admin: false }
+                  accessToken: "eyJhbGci..."
+                  refreshToken: "550e8400-..."
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              example: { success: false, error: "password must be at least 8 characters", code: "VALIDATION_ERROR" }
+        '409':
+          description: Email or username taken
+          content:
+            application/json:
+              example: { success: false, error: "Email or username already in use", code: "DUPLICATE_USER" }
+
+  /auth/login:
+    post:
+      operationId: authLogin
+      summary: Log in and receive tokens
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:    { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  user: { id: "a1b2...", email: "alice@example.com", username: "alice99" }
+                  accessToken: "eyJhbGci..."
+                  refreshToken: "550e8400-..."
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              example: { success: false, error: "Invalid credentials", code: "INVALID_CREDENTIALS" }
+        '403':
+          description: Account banned
+          content:
+            application/json:
+              example: { success: false, error: "Account suspended", code: "ACCOUNT_BANNED" }
+
+  /auth/refresh:
+    post:
+      operationId: authRefresh
+      summary: Rotate refresh token and obtain a new access token
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200':
+          description: New tokens issued
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  accessToken: "eyJhbGci..."
+                  refreshToken: "new-uuid"
+                  user: { id: "a1b2...", email: "alice@example.com" }
+        '401':
+          description: Invalid or expired refresh token
+          content:
+            application/json:
+              example: { success: false, error: "Invalid refresh token", code: "INVALID_REFRESH_TOKEN" }
+
+  /auth/logout:
+    post:
+      operationId: authLogout
+      summary: Invalidate all refresh tokens for the current user
+      tags: [auth]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Logged out
+          content:
+            application/json:
+              example: { success: true, data: { message: "Logged out" } }
+        '401':
+          description: Missing or invalid access token
+          content:
+            application/json:
+              example: { success: false, error: "Unauthorized", code: "UNAUTHORIZED" }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# USERS
+# ─────────────────────────────────────────────────────────────────────────────
+  /users/me:
+    get:
+      operationId: getMe
+      summary: Get authenticated user's full profile
+      tags: [users]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: User with profile data
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  user:
+                    id: "a1b2c3d4-..."
+                    email: "alice@example.com"
+                    username: "alice99"
+                    subscription_status: "free"
+                    streak: 5
+                    xp: 320
+                    badges: []
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              example: { success: false, error: "Unauthorized", code: "UNAUTHORIZED" }
+
+    patch:
+      operationId: updateMe
+      summary: Update profile fields
+      tags: [users]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                interests:  { type: array, items: { type: string } }
+                education:  { type: object }
+                motive:     { type: string }
+                targets:    { type: object }
+                resume_ref: { type: string, format: uuid, nullable: true }
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  profile: { user_id: "a1b2...", interests: ["tech", "travel"], motive: "Get a new job" }
+
+    delete:
+      operationId: deleteMe
+      summary: GDPR erasure — permanently delete account and all associated data
+      tags: [users]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Account deleted
+          content:
+            application/json:
+              example: { success: true, data: { deleted: true } }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EXERCISES
+# ─────────────────────────────────────────────────────────────────────────────
+  /exercises/speaking/prompt:
+    get:
+      operationId: getSpeakingPrompt
+      summary: Get a speaking prompt matched to the user's XP level
+      tags: [exercises]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Speaking prompt seed
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  prompt:
+                    id: "seed-uuid"
+                    type: "speaking_prompt"
+                    difficulty: "medium"
+                    payload: { prompt_text: "Describe a challenge you overcame recently." }
+        '404':
+          description: No prompts available
+          content:
+            application/json:
+              example: { success: false, error: "No speaking prompts available", code: "NOT_FOUND" }
+
+  /exercises/speaking/evaluate:
+    post:
+      operationId: evaluateSpeaking
+      summary: Score a completed speaking exercise using its transcript
+      tags: [exercises]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [audio_id, prompt_id]
+              properties:
+                audio_id:  { type: string, format: uuid }
+                prompt_id: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Feedback and score
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  score: 74
+                  xp_awarded: 14
+                  feedback:
+                    pronunciation: { score: 70, issues: [] }
+                    vocabulary:    { score: 80, strong_words: ["articulate"], weak_words: [], suggestions: [] }
+                    grammar:       { score: 75, errors: [] }
+                    fluency:       { score: 72, wpm: 130, pause_count: 3, notes: "Good pacing." }
+                    filler_words:  { count: 2, words: [{ word: "um", occurrences: 2 }] }
+                    overall_score: 74
+                    level: "B2"
+        '202':
+          description: Transcript still processing
+          content:
+            application/json:
+              example: { success: false, message: "Transcript still processing. Try again shortly." }
+
+  /exercises/{type}/seed:
+    get:
+      operationId: getExerciseSeed
+      summary: Get a random exercise seed for the given type and difficulty
+      tags: [exercises]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [fillup, jumbled_word, jumbled_sentence, vocab, synonyms, antonyms, pronunciation_spelling, grammar_transform, typing_from_audio]
+        - name: difficulty
+          in: query
+          schema:
+            type: string
+            enum: [easy, medium, hard]
+            default: medium
+      responses:
+        '200':
+          description: Exercise seed (answer_key stripped)
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  seed:
+                    id: "seed-uuid"
+                    type: "fillup"
+                    difficulty: "medium"
+                    payload: { sentence: "She ___ to work every day.", options: ["walk", "walks", "walked", "walking"], hints: [] }
+        '400':
+          description: Invalid type or difficulty
+          content:
+            application/json:
+              example: { success: false, error: "Invalid exercise type", code: "INVALID_TYPE" }
+        '404':
+          description: No seeds available
+          content:
+            application/json:
+              example: { success: false, error: "No exercises available for this type and difficulty", code: "NOT_FOUND" }
+
+  /exercises/{type}/submit:
+    post:
+      operationId: submitExercise
+      summary: Submit an answer for scoring and XP award
+      tags: [exercises]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [fillup, jumbled_word, jumbled_sentence, vocab, synonyms, antonyms, pronunciation_spelling, grammar_transform, typing_from_audio]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [seed_id, user_answer]
+              properties:
+                seed_id:    { type: string, format: uuid }
+                user_answer: {}
+                audio_id:   { type: string, format: uuid }
+      responses:
+        '200':
+          description: Evaluation result
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  is_correct: true
+                  score: 150
+                  xp_awarded: 15
+                  explanation: "The correct form is 'walks' (third-person singular present)."
+                  hints: []
+        '402':
+          description: Daily energy depleted
+          content:
+            application/json:
+              example: { error: "Daily energy depleted. Resets at midnight UTC.", code: "ENERGY_DEPLETED", resets_at: "2026-04-13T00:00:00.000Z" }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AUDIO
+# ─────────────────────────────────────────────────────────────────────────────
+  /audio/upload-init:
+    post:
+      operationId: audioUploadInit
+      summary: Request a signed Cloudinary upload URL
+      tags: [audio]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename]
+              properties:
+                filename:         { type: string }
+                duration_seconds: { type: integer }
+                format:           { type: string, enum: [webm, mp4, mp3, wav, ogg, m4a] }
+                context_type:     { type: string, enum: [speaking, interview, speed_reading], default: speaking }
+      responses:
+        '200':
+          description: Signed upload credentials
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  upload_id: "audio-uuid"
+                  cloudinary:
+                    uploadUrl: "https://api.cloudinary.com/v1_1/demo/video/upload"
+                    signature: "abc123..."
+                    timestamp: 1700000000
+                    apiKey: "123456789"
+                    cloudName: "demo"
+                    folder: "kikoo/audio/user-id"
+                  expires_in_seconds: 900
+
+  /audio/complete:
+    post:
+      operationId: audioComplete
+      summary: Confirm upload and enqueue transcription job
+      tags: [audio]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [upload_id, cloudinary_public_id, cloudinary_url]
+              properties:
+                upload_id:            { type: string, format: uuid }
+                cloudinary_public_id: { type: string }
+                cloudinary_url:       { type: string, format: uri }
+                duration_seconds:     { type: integer }
+                format:               { type: string, enum: [webm, mp4, mp3, wav, ogg, m4a] }
+                prompt_text:          { type: string, maxLength: 1000 }
+      responses:
+        '202':
+          description: Transcription job enqueued
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  audio_id: "audio-uuid"
+                  job_id: "job-uuid"
+                  message: "Transcription started. Poll /jobs/:job_id/status for progress."
+
+  /jobs/{job_id}/status:
+    get:
+      operationId: getJobStatus
+      summary: Poll a background job for progress
+      tags: [jobs]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Job status
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  id: "job-uuid"
+                  status: "processing"
+                  progress_pct: 60
+                  error_message: null
+                  updated_at: "2026-04-12T14:00:00Z"
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              example: { success: false, error: "Job not found", code: "JOB_NOT_FOUND" }
+
+  /audio/{audio_id}/transcript:
+    get:
+      operationId: getTranscript
+      summary: Retrieve the final transcript and AI feedback for a completed audio file
+      tags: [audio]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: audio_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Transcript with AI feedback
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  audio_id: "audio-uuid"
+                  status: "done"
+                  transcript:
+                    id: "transcript-uuid"
+                    raw_text: "Today I want to talk about..."
+                    asr_confidence: 0.85
+                    feedback:
+                      pronunciation: { score: 78, issues: [] }
+                      vocabulary:    { score: 82, strong_words: [], weak_words: [], suggestions: [] }
+                      grammar:       { score: 80, errors: [] }
+                      fluency:       { score: 76, wpm: 145, pause_count: 2, notes: "Good." }
+                      filler_words:  { count: 1, words: [] }
+                      overall_score: 79
+                      level: "B2"
+                    schema_version: "1.0"
+        '202':
+          description: Transcription not yet complete
+          content:
+            application/json:
+              example:
+                success: true
+                data: { status: "processing", message: "Transcription not complete yet" }
+        '404':
+          description: Audio file not found
+          content:
+            application/json:
+              example: { success: false, error: "Audio file not found", code: "AUDIO_NOT_FOUND" }
+
+  /audio/{audio_id}:
+    delete:
+      operationId: deleteAudio
+      summary: Delete an audio file and its transcript
+      tags: [audio]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: audio_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              example: { success: true, data: { message: "Audio and transcript deleted" } }
+        '404':
+          description: Audio file not found
+          content:
+            application/json:
+              example: { success: false, error: "Audio file not found", code: "AUDIO_NOT_FOUND" }
+
+  /audio:
+    get:
+      operationId: listAudio
+      summary: List the authenticated user's audio files (20 most recent)
+      tags: [audio]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: List of audio files
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  audio: [{ id: "audio-uuid", format: "webm", status: "done", created_at: "2026-04-12T10:00:00Z" }]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RESUMES
+# ─────────────────────────────────────────────────────────────────────────────
+  /resumes/upload-init:
+    post:
+      operationId: resumeUploadInit
+      summary: Request a signed Cloudinary URL for resume file upload
+      tags: [resumes]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Signed upload credentials and placeholder resume_id
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  resume_id: "resume-uuid"
+                  cloudinary:
+                    uploadUrl: "https://api.cloudinary.com/v1_1/demo/raw/upload"
+                    signature: "def456..."
+                    timestamp: 1700000000
+                    apiKey: "123456789"
+                    cloudName: "demo"
+                    folder: "kikoo/resumes/user-id"
+
+  /resumes/upload-complete:
+    post:
+      operationId: resumeUploadComplete
+      summary: Confirm file upload and attach Cloudinary reference to resume record
+      tags: [resumes]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resume_id, cloudinary_public_id, cloudinary_url, format]
+              properties:
+                resume_id:            { type: string, format: uuid }
+                cloudinary_public_id: { type: string }
+                cloudinary_url:       { type: string, format: uri }
+                format:               { type: string, enum: [pdf, docx, txt] }
+                title:                { type: string, maxLength: 100 }
+      responses:
+        '200':
+          description: Resume record updated
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  resume: { id: "resume-uuid", title: "My Resume", file_format: "pdf", cloudinary_url: "https://res.cloudinary.com/..." }
+        '400':
+          description: File not found on Cloudinary
+          content:
+            application/json:
+              example: { success: false, error: "Raw asset not found on Cloudinary", code: "FILE_NOT_FOUND_ON_CLOUDINARY" }
+
+  /resumes/save-json:
+    post:
+      operationId: resumeSaveJson
+      summary: Save a resume as a structured JSON blob (from resume builder)
+      tags: [resumes]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [json_blob]
+              properties:
+                title:    { type: string }
+                json_blob: { type: object }
+      responses:
+        '201':
+          description: Resume saved
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  resume: { id: "resume-uuid", title: "My Resume", created_at: "2026-04-12T10:00:00Z" }
+
+  /resumes/analyze:
+    post:
+      operationId: resumeAnalyze
+      summary: Start an AI analysis job for a resume against a job description
+      tags: [resumes]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resume_id, jd_text]
+              properties:
+                resume_id:    { type: string, format: uuid }
+                jd_text:      { type: string, minLength: 50, description: "Job description text (min 50 chars)" }
+                cover_letter: { type: string }
+      responses:
+        '202':
+          description: Analysis enqueued — poll /resumes/reports/:report_id
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  report_id: "report-uuid"
+                  job_id: "job-uuid"
+                  message: "Analysis started. Poll /resumes/reports/:report_id for results."
+        '404':
+          description: Resume not found
+          content:
+            application/json:
+              example: { success: false, error: "Resume not found", code: "RESUME_NOT_FOUND" }
+
+  /resumes/roast:
+    post:
+      operationId: resumeRoast
+      summary: Start an AI roast job — same schema as analyze but with witty commentary tone
+      tags: [resumes]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resume_id, jd_text]
+              properties:
+                resume_id:    { type: string, format: uuid }
+                jd_text:      { type: string, minLength: 50 }
+                cover_letter: { type: string }
+      responses:
+        '202':
+          description: Roast enqueued
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  report_id: "report-uuid"
+                  job_id: "job-uuid"
+                  message: "Roast started. Poll /resumes/reports/:report_id for results."
+
+  /resumes/reports/{report_id}:
+    get:
+      operationId: getResumeReport
+      summary: Poll for resume analysis or roast results
+      tags: [resumes]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: report_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Analysis complete or failed — check data.status
+          content:
+            application/json:
+              examples:
+                done:
+                  value:
+                    success: true
+                    data:
+                      status: "done"
+                      analysis_type: "analyze"
+                      score: 82
+                      report:
+                        strengths: ["Strong quantified impact metrics"]
+                        ats_issues: [{ issue: "Missing keywords", severity: "high", fix: "Add Python to skills" }]
+                        suggested_bullets: []
+                        improvement_steps: [{ step: "Tailor summary section", priority: 1 }]
+                        keywords_missing: ["Python", "Agile"]
+                        keywords_matched: ["JavaScript", "Node.js"]
+                        score: 82
+                        score_breakdown: { relevance: 85, formatting: 78, impact: 88, ats_compatibility: 77 }
+                        summary: "Solid background with strong project outcomes."
+                        roast_lines: []
+                failed:
+                  value:
+                    success: true
+                    data:
+                      status: "failed"
+                      report: null
+                      error: "Analysis failed"
+                      code: "ANALYSIS_FAILED"
+        '202':
+          description: Analysis still in progress
+          content:
+            application/json:
+              example:
+                success: true
+                data: { status: "processing", report: null, message: "Analysis in progress" }
+        '404':
+          description: Report not found
+          content:
+            application/json:
+              example: { success: false, error: "Report not found", code: "REPORT_NOT_FOUND" }
+
+  /resumes:
+    get:
+      operationId: listResumes
+      summary: List the authenticated user's resumes (20 most recent)
+      tags: [resumes]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: List of resumes
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  resumes: [{ id: "resume-uuid", title: "My Resume", file_format: "pdf", created_at: "2026-04-12T10:00:00Z" }]
+
+  /resumes/{resume_id}:
+    delete:
+      operationId: deleteResume
+      summary: Delete a resume and its Cloudinary asset
+      tags: [resumes]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: resume_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              example: { success: true, data: { message: "Resume deleted" } }
+        '404':
+          description: Resume not found
+          content:
+            application/json:
+              example: { success: false, error: "Resume not found", code: "RESUME_NOT_FOUND" }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INTERVIEW
+# ─────────────────────────────────────────────────────────────────────────────
+  /interview/config:
+    get:
+      operationId: getInterviewConfig
+      summary: Get Gemini API credentials for client-side live interview session
+      tags: [interview]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Gemini config
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  gemini_api_key: "AIza..."
+                  live_model: "gemini-2.5-flash-native-audio-preview-09-2025"
+                  analysis_model: "gemini-2.5-flash-preview-05-20"
+                  voices: { emma: "Kore", john: "Puck" }
+
+  /interview/questions:
+    get:
+      operationId: getInterviewQuestions
+      summary: Generate AI interview questions for a role (cached 1 hour)
+      tags: [interview]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: role
+          in: query
+          required: true
+          schema: { type: string, example: "Backend Developer" }
+        - name: round
+          in: query
+          schema: { type: string, default: "Technical", example: "HR" }
+        - name: difficulty
+          in: query
+          schema: { type: string, default: "Medium", example: "Hard" }
+      responses:
+        '200':
+          description: Generated questions
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  questions:
+                    - { question: "Explain how you would design a rate limiter.", difficulty: "Hard", category: "System Design" }
+                    - { question: "What is the event loop in Node.js?", difficulty: "Medium", category: "Core Concepts" }
+        '400':
+          description: Missing role param
+          content:
+            application/json:
+              example: { success: false, error: "role query param is required", code: "MISSING_ROLE" }
+
+  /interview/rooms/create:
+    post:
+      operationId: createInterviewRoom
+      summary: Create a new mock interview room
+      tags: [interview]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                duration_mins:  { type: integer, minimum: 1, maximum: 120 }
+                question_count: { type: integer, minimum: 1, maximum: 20 }
+                difficulty:     { type: string, enum: [easy, medium, hard] }
+                job_role:       { type: string }
+                company:        { type: string }
+                questions:
+                  type: array
+                  items:
+                    type: object
+                    required: [question_text]
+                    properties:
+                      question_text: { type: string }
+      responses:
+        '201':
+          description: Room created
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  room_id: "room-uuid"
+                  room_token: "abc123hextoken"
+                  settings: { job_role: "Backend Developer", difficulty: "medium" }
+                  status: "created"
+
+  /interview/rooms/{room_id}/record/start:
+    post:
+      operationId: startRecording
+      summary: Start recording for an interview room
+      tags: [interview]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: room_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Recording started
+          content:
+            application/json:
+              example:
+                success: true
+                data: { room_id: "room-uuid", status: "recording", start_ts: "2026-04-12T14:00:00Z" }
+        '404':
+          description: Room not found
+          content:
+            application/json:
+              example: { success: false, error: "Room not found", code: "ROOM_NOT_FOUND" }
+        '400':
+          description: Room already active
+          content:
+            application/json:
+              example: { success: false, error: "Room is already active or completed", code: "ROOM_ALREADY_ACTIVE" }
+
+  /interview/rooms/{room_id}/record/stop:
+    post:
+      operationId: stopRecording
+      summary: Stop recording and enqueue interview scoring job
+      tags: [interview]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: room_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [audio_id]
+              properties:
+                audio_id: { type: string, format: uuid }
+      responses:
+        '202':
+          description: Scoring job enqueued
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  room_id: "room-uuid"
+                  job_id: "job-uuid"
+                  status: "processing"
+                  message: "Interview processing started. Poll /jobs/:job_id/status."
+
+  /interview/rooms/{room_id}/result:
+    get:
+      operationId: getInterviewResult
+      summary: Get the result of a completed interview room
+      tags: [interview]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: room_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Room result (null if not done yet)
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  room_id: "room-uuid"
+                  status: "done"
+                  result:
+                    transcript: [{ role: "user", text: "I would start by..." }]
+                    report: { score: 78, feedback: "Good use of STAR method.", strengths: ["Clear communication"], improvements: ["Add more technical depth"] }
+
+  /interview/rooms/{room_id}/save-report:
+    post:
+      operationId: saveInterviewReport
+      summary: Save client-generated live-session transcript and report
+      tags: [interview]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: room_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [transcript, report]
+              properties:
+                transcript:
+                  type: array
+                  items:
+                    type: object
+                    required: [role, text]
+                    properties:
+                      role: { type: string }
+                      text: { type: string }
+                report:
+                  type: object
+                  required: [score, feedback, strengths, improvements]
+                  properties:
+                    score:               { type: number }
+                    feedback:            { type: string }
+                    strengths:           { type: array, items: { type: string } }
+                    improvements:        { type: array, items: { type: string } }
+                    technicalAccuracy:   { type: string }
+                    communicationStyle:  { type: string }
+      responses:
+        '200':
+          description: Report saved
+          content:
+            application/json:
+              example:
+                success: true
+                data: { room_id: "room-uuid", status: "done" }
+
+  /interview/rooms:
+    get:
+      operationId: listInterviewRooms
+      summary: List the authenticated user's interview rooms (20 most recent)
+      tags: [interview]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: List of rooms
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  rooms: [{ id: "room-uuid", status: "done", created_at: "2026-04-12T10:00:00Z" }]
+
+  /interview/questions/evaluate:
+    post:
+      operationId: evaluateInterviewAnswer
+      summary: Evaluate a scraped interview question answer (text or audio)
+      description: >
+        The client scrapes questions from job postings and submits them here with the
+        user's answer. The server evaluates the answer and returns structured feedback.
+      tags: [interview]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question_text]
+              properties:
+                question_text: { type: string, minLength: 10 }
+                answer_text:   { type: string }
+                audio_id:      { type: string, format: uuid }
+                job_role:      { type: string }
+      responses:
+        '200':
+          description: Feedback
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  overall_score: 72
+                  feedback:
+                    relevance_score: 75
+                    communication_score: 70
+                    structure_score: 68
+                    confidence_indicators: ["spoke clearly"]
+                    star_method_used: false
+                    strengths: ["Good domain knowledge"]
+                    improvements: ["Use STAR structure"]
+                    model_answer_outline: "Situation: ... Task: ... Action: ... Result: ..."
+                    one_line_verdict: "Decent answer but lacks structured delivery."
+        '202':
+          description: Audio transcript not yet ready
+          content:
+            application/json:
+              example:
+                success: true
+                data: { message: "Audio transcript not ready" }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JOBS
+# ─────────────────────────────────────────────────────────────────────────────
+  /jobs:
+    get:
+      operationId: listJobs
+      summary: List the authenticated user's background jobs (20 most recent)
+      tags: [jobs]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: List of jobs
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  jobs:
+                    - { id: "job-uuid", type: "transcription", status: "done", progress_pct: 100, error_message: null, created_at: "2026-04-12T10:00:00Z" }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ASSIGNMENTS
+# ─────────────────────────────────────────────────────────────────────────────
+  /assignments/daily:
+    get:
+      operationId: getDailyAssignment
+      summary: Get today's personalised daily exercise set
+      tags: [assignments]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Daily assignment with exercises and progress
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  date: "2026-04-12"
+                  exercises:
+                    - { type: "fillup", seed_id: "seed-uuid", difficulty: "medium" }
+                    - { type: "vocab", seed_id: "seed-uuid2", difficulty: "easy" }
+                  completed_count: 1
+                  total_count: 5
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GAMES
+# ─────────────────────────────────────────────────────────────────────────────
+  /games/{type}/seed:
+    get:
+      operationId: getGameSeed
+      summary: Get a random active game seed for the given type (answer_key stripped)
+      tags: [games]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [conexo, speed_reading, contextooo, word_blitz, guess_the_word]
+      responses:
+        '200':
+          description: Game seed
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  game:
+                    id: "game-uuid"
+                    type: "conexo"
+                    difficulty: "medium"
+                    config: { group_count: 4, words_per_group: 4 }
+                    seed_json:
+                      groups:
+                        - { category: "Planets", words: ["Mars", "Venus", "Saturn", "Jupiter"] }
+                      mixed_words: ["Mars", "dollar", "French", "Pacific", "Venus"]
+        '400':
+          description: Invalid game type
+          content:
+            application/json:
+              example: { success: false, error: "Invalid game type", code: "INVALID_TYPE" }
+        '404':
+          description: No seeds available
+          content:
+            application/json:
+              example: { success: false, error: "No games available for this type", code: "NOT_FOUND" }
+
+  /games/{type}/score:
+    post:
+      operationId: submitGameScore
+      summary: Submit a game score and receive the user's rank
+      tags: [games]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [conexo, speed_reading, contextooo, word_blitz, guess_the_word]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [game_id, score]
+              properties:
+                game_id:            { type: string, format: uuid }
+                score:              { type: integer }
+                combo:              { type: integer }
+                hearts_left:        { type: integer }
+                time_taken_seconds: { type: integer }
+                metadata:           { type: object }
+      responses:
+        '200':
+          description: Score saved with rank
+          content:
+            application/json:
+              example:
+                success: true
+                data: { saved: true, rank: 4 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONTESTS
+# ─────────────────────────────────────────────────────────────────────────────
+  /contests:
+    post:
+      operationId: createContest
+      summary: Create a contest (admin only)
+      tags: [contests]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, game_type]
+              properties:
+                title:     { type: string, minLength: 3, maxLength: 120 }
+                game_type: { type: string, example: "conexo" }
+                start_ts:  { type: string, format: date-time }
+                end_ts:    { type: string, format: date-time }
+                prize_info:
+                  type: object
+                  properties:
+                    prize_type: { type: string, enum: [pro, certificate, none] }
+                    pro_days:   { type: integer }
+                settings:
+                  type: object
+                  properties:
+                    randomize_seed:  { type: boolean }
+                    pinned_seed_id:  { type: string, format: uuid }
+      responses:
+        '201':
+          description: Contest created
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  contest:
+                    id: "contest-uuid"
+                    token: "a3f9b2..."
+                    share_link: "https://app.kikooai.com/contests/a3f9b2..."
+                    status: "draft"
+
+    get:
+      operationId: listContests
+      summary: List active contests
+      tags: [contests]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 50 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        '200':
+          description: Active contests
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  contests:
+                    - { id: "contest-uuid", title: "April Conexo Challenge", game_type: "conexo", participant_count: 14, status: "active" }
+
+  /contests/{token}/join:
+    post:
+      operationId: joinContest
+      summary: Join a contest by its share token
+      tags: [contests]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '201':
+          description: Joined — includes game seed
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  contest_id: "contest-uuid"
+                  contest_title: "April Conexo Challenge"
+                  share_link: "https://app.kikooai.com/contests/a3f9b2..."
+                  participant_token: "participant-uuid"
+                  game_seed: { groups: [], mixed_words: [] }
+        '400':
+          description: Contest not active
+          content:
+            application/json:
+              example: { success: false, error: "Contest is not currently active", code: "CONTEST_NOT_ACTIVE" }
+        '409':
+          description: Already joined
+          content:
+            application/json:
+              example: { success: false, error: "Already joined this contest", code: "ALREADY_JOINED" }
+
+  /contests/{token}/leaderboard:
+    get:
+      operationId: getContestLeaderboard
+      summary: Get live ranked leaderboard for a contest
+      tags: [contests]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Leaderboard
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  contest_id: "contest-uuid"
+                  contest_title: "April Conexo Challenge"
+                  leaderboard:
+                    - { rank: 1, score: 950, username: "alice99", fullname: "Alice Smith", joined_at: "2026-04-12T10:00:00Z" }
+                    - { rank: 2, score: 820, username: "bob42",   fullname: "Bob Jones",  joined_at: "2026-04-12T10:05:00Z" }
+                  my_rank: 2
+                  my_score: 820
+
+  /contests/{token}/score:
+    post:
+      operationId: submitContestScore
+      summary: Submit or update score for a contest (only improves, never regresses)
+      tags: [contests]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [score]
+              properties:
+                score:    { type: integer, minimum: 0 }
+                metadata: { type: object }
+      responses:
+        '200':
+          description: Updated leaderboard top-10 and caller's rank
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  leaderboard: []
+                  my_rank: 3
+        '403':
+          description: Not a participant
+          content:
+            application/json:
+              example: { success: false, error: "You have not joined this contest", code: "NOT_A_PARTICIPANT" }
+
+  /contests/{token}/complete:
+    post:
+      operationId: completeContest
+      summary: Finalize contest, lock ranks, and distribute prizes (admin only)
+      tags: [contests]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Contest completed with prize summary
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  contest_id: "contest-uuid"
+                  status: "completed"
+                  prizes_awarded: 1
+                  winner_ids: ["user-uuid"]
+                  final_leaderboard: []
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ADMIN
+# ─────────────────────────────────────────────────────────────────────────────
+  /admin/users:
+    get:
+      operationId: adminListUsers
+      summary: List all users with optional search (admin only)
+      tags: [admin]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: search
+          in: query
+          schema: { type: string, description: "Partial email or username (ILIKE)" }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        '200':
+          description: Paginated user list
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  users: [{ id: "user-uuid", email: "alice@example.com", username: "alice99", subscription_status: "free", streak: 5 }]
+                  total: 142
+                  limit: 20
+                  offset: 0
+
+  /admin/users/{id}:
+    get:
+      operationId: adminGetUser
+      summary: Get full user detail including activity counts (admin only)
+      tags: [admin]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: User detail
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  user:
+                    id: "user-uuid"
+                    email: "alice@example.com"
+                    flags: []
+                    badges: []
+                    subscription_status: "free"
+                    stats: { exercise_submissions: 38, audio_files: 12, resumes: 2 }
+        '404':
+          description: User not found
+          content:
+            application/json:
+              example: { success: false, error: "User not found", code: "USER_NOT_FOUND" }
+
+    delete:
+      operationId: adminDeleteUser
+      summary: Hard-delete a user and all their data (admin only)
+      tags: [admin]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: User deleted
+          content:
+            application/json:
+              example: { success: true, data: { user_id: "user-uuid", deleted: true } }
+
+  /admin/users/{id}/ban:
+    post:
+      operationId: adminBanUser
+      summary: Ban a user (admin only)
+      tags: [admin]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, maxLength: 500 }
+      responses:
+        '200':
+          description: Banned
+          content:
+            application/json:
+              example: { success: true, data: { user_id: "user-uuid", is_banned: true } }
+
+  /admin/users/{id}/unban:
+    post:
+      operationId: adminUnbanUser
+      summary: Unban a user (admin only)
+      tags: [admin]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Unbanned
+          content:
+            application/json:
+              example: { success: true, data: { user_id: "user-uuid", is_banned: false } }
+
+  /admin/users/{id}/flag:
+    post:
+      operationId: adminFlagUser
+      summary: Add a flag entry to a user's flag history (admin only)
+      tags: [admin]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, maxLength: 500 }
+      responses:
+        '200':
+          description: Flagged
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  user_id: "user-uuid"
+                  is_flagged: true
+                  flags: [{ reason: "Suspicious activity", flagged_by: "admin-uuid", flagged_at: "2026-04-12T14:00:00Z" }]
+
+  /admin/users/{id}/badges/assign:
+    post:
+      operationId: adminAssignBadge
+      summary: Assign a badge to a user (admin only)
+      tags: [admin]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [badge_id, badge_name]
+              properties:
+                badge_id:   { type: string }
+                badge_name: { type: string }
+      responses:
+        '200':
+          description: Badge assigned
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  user_id: "user-uuid"
+                  badges: [{ id: "streak_7", name: "7-Day Streak", awarded_at: "2026-04-12T14:00:00Z" }]
+
+  /admin/users/{id}/badges/remove:
+    post:
+      operationId: adminRemoveBadge
+      summary: Remove a badge from a user (admin only)
+      tags: [admin]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [badge_id]
+              properties:
+                badge_id: { type: string }
+      responses:
+        '200':
+          description: Badge removed
+          content:
+            application/json:
+              example: { success: true, data: { user_id: "user-uuid", badges: [] } }
+
+  /admin/users/{id}/grant-pro:
+    post:
+      operationId: adminGrantPro
+      summary: Grant a Pro subscription for N days (admin only)
+      tags: [admin]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [days]
+              properties:
+                days: { type: integer, minimum: 1, maximum: 3650 }
+      responses:
+        '200':
+          description: Pro granted
+          content:
+            application/json:
+              example: { success: true, data: { user_id: "user-uuid", subscription_status: "pro", days_granted: 30 } }
+
+  /admin/users/{id}/revoke-pro:
+    post:
+      operationId: adminRevokePro
+      summary: Revoke a Pro subscription immediately (admin only)
+      tags: [admin]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Pro revoked
+          content:
+            application/json:
+              example: { success: true, data: { user_id: "user-uuid", subscription_status: "free" } }
+
+  /admin/promo-codes:
+    post:
+      operationId: adminCreatePromoCode
+      summary: Create a promo code (admin only)
+      tags: [admin]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, discount_pct]
+              properties:
+                code:         { type: string, minLength: 3, maxLength: 30 }
+                discount_pct: { type: integer, minimum: 0, maximum: 100 }
+                max_uses:     { type: integer, minimum: 1 }
+                grants_pro:   { type: boolean }
+                pro_days:     { type: integer, minimum: 1 }
+                expires_at:   { type: string, format: date-time, nullable: true }
+      responses:
+        '201':
+          description: Promo code created
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  promo: { id: "promo-uuid", code: "LAUNCH50", discount_pct: 50, grants_pro: false, is_active: true }
+        '409':
+          description: Code already exists
+          content:
+            application/json:
+              example: { success: false, error: "Promo code already exists", code: "PROMO_DUPLICATE" }
+
+    get:
+      operationId: adminListPromoCodes
+      summary: List all promo codes (admin only)
+      tags: [admin]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Promo codes
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  promos: [{ id: "promo-uuid", code: "LAUNCH50", uses: 3, max_uses: 100, is_active: true }]
+
+  /admin/promo-codes/{id}:
+    patch:
+      operationId: adminTogglePromoCode
+      summary: Toggle is_active on a promo code (admin only)
+      tags: [admin]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              example: { success: true, data: { promo: { id: "promo-uuid", code: "LAUNCH50", is_active: false } } }
+
+  /admin/logs:
+    get:
+      operationId: adminGetLogs
+      summary: Query background job logs with optional filters (admin only)
+      tags: [admin]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, processing, done, failed] }
+        - name: type
+          in: query
+          schema: { type: string, enum: [transcription, resume_analyze, resume_roast, interview_score] }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, maximum: 200 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        '200':
+          description: Job logs
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  logs:
+                    - { id: "job-uuid", type: "transcription", status: "failed", error_message: "AI transcription service failed", user_id: "user-uuid", attempts: 3, created_at: "2026-04-12T14:00:00Z" }
+                  total: 1
+                  limit: 50
+                  offset: 0
+
+  /admin/jobs/{job_id}/retry:
+    post:
+      operationId: adminRetryJob
+      summary: Re-enqueue a failed background job (admin only)
+      tags: [admin]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Job re-enqueued
+          content:
+            application/json:
+              example: { success: true, data: { requeued: true, job_id: "job-uuid" } }
+        '400':
+          description: Job is not in failed state
+          content:
+            application/json:
+              example: { success: false, error: "Job is not in failed state (current: done)", code: "JOB_NOT_FAILED" }
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              example: { success: false, error: "Job not found", code: "JOB_NOT_FOUND" }
+
+  /admin/export:
+    post:
+      operationId: adminTriggerExport
+      summary: Trigger an async CSV export (admin only) — returns immediately, poll /admin/exports
+      tags: [admin]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [export_type]
+              properties:
+                export_type: { type: string, enum: [users, transcripts, contest_results, game_scores] }
+      responses:
+        '202':
+          description: Export started
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  export_id: "export-uuid"
+                  status: "pending"
+                  message: "Export started. Poll /admin/exports for status."
+
+  /admin/exports:
+    get:
+      operationId: adminListExports
+      summary: List all export jobs and their download URLs (admin only)
+      tags: [admin]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Export history
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  exports:
+                    - { id: "export-uuid", export_type: "users", status: "done", file_url: "https://res.cloudinary.com/kikoo/raw/upload/v1/kikoo/exports/users-export-uuid.csv", requested_by_username: "admin1", created_at: "2026-04-12T14:00:00Z" }
+
+  /promo-codes/redeem:
+    post:
+      operationId: redeemPromoCode
+      summary: Redeem a promo code (any authenticated user)
+      tags: [admin]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string }
+      responses:
+        '200':
+          description: Redeemed
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  redeemed: true
+                  discount_pct: 50
+                  grants_pro: true
+                  pro_days: 30
+                  code: "LAUNCH50"
+        '400':
+          description: Code inactive, expired, or exhausted
+          content:
+            application/json:
+              example: { success: false, error: "Promo code has expired", code: "PROMO_EXPIRED" }
+        '409':
+          description: Already redeemed by this user
+          content:
+            application/json:
+              example: { success: false, error: "You have already redeemed this code", code: "ALREADY_REDEEMED" }

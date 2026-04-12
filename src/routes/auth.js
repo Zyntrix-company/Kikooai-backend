@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import Joi from 'joi';
+import pool from '../db/pool.js';
 import * as authService from '../services/authService.js';
+import { deleteUserAssets } from '../services/cloudinaryService.js';
 import auth from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { success, fail } from '../utils/response.js';
@@ -8,7 +10,7 @@ import { success, fail } from '../utils/response.js';
 const router = Router();
 
 const signupSchema = Joi.object({
-  email: Joi.string().email().required(),
+  email: Joi.string().email({ tlds: { allow: false } }).required(),
   password: Joi.string().min(8).required(),
   username: Joi.string().alphanum().min(3).max(30).required(),
   fullname: Joi.string().required(),
@@ -16,7 +18,7 @@ const signupSchema = Joi.object({
 });
 
 const loginSchema = Joi.object({
-  email: Joi.string().email().required(),
+  email: Joi.string().email({ tlds: { allow: false } }).required(),
   password: Joi.string().required(),
 });
 
@@ -99,6 +101,23 @@ router.patch('/users/me', auth, validate(updateProfileSchema), async (req, res, 
   try {
     const profile = await authService.updateUserProfile(req.user.id, req.body);
     return success(res, { profile });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /users/me — GDPR erasure: hard-delete account + all Cloudinary assets
+router.delete('/users/me', auth, async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+
+    // Best-effort Cloudinary cleanup before DB delete (so userId is still valid for logging)
+    await deleteUserAssets(userId);
+
+    // Hard delete — CASCADE removes all linked rows (profiles, audio_files, transcripts, etc.)
+    await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+
+    return success(res, { deleted: true });
   } catch (err) {
     next(err);
   }
