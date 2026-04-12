@@ -9,6 +9,8 @@ import resumeRouter from './routes/resumes.js';
 import interviewRouter from './routes/interview.js';
 import jobsRouter from './routes/jobs.js';
 import assignmentsRouter from './routes/assignments.js';
+import gamesRouter from './routes/games.js';
+import contestsRouter from './routes/contests.js';
 import { jobQueue } from './jobs/JobQueue.js';
 import { resumeJobHandler } from './jobs/resumeJob.js';
 import { interviewJobHandler } from './jobs/interviewJob.js';
@@ -59,7 +61,7 @@ app.get('/healthz', async (req, res) => {
   // 4. Routes mounted
   checks.routes = {
     status: 'ok',
-    mounted: ['/api/v1/auth', '/api/v1/exercises', '/api/v1/audio', '/api/v1/resumes', '/api/v1/interview', '/api/v1/jobs', '/api/v1/assignments'],
+    mounted: ['/api/v1/auth', '/api/v1/exercises', '/api/v1/audio', '/api/v1/resumes', '/api/v1/interview', '/api/v1/jobs', '/api/v1/assignments', '/api/v1/games', '/api/v1/contests'],
   };
 
   const httpStatus = allOk ? 200 : 503;
@@ -78,6 +80,8 @@ app.use('/api/v1', resumeRouter);
 app.use('/api/v1', interviewRouter);
 app.use('/api/v1', jobsRouter);
 app.use('/api/v1', assignmentsRouter);
+app.use('/api/v1', gamesRouter);
+app.use('/api/v1', contestsRouter);
 
 // 404 handler
 app.use((req, res) => {
