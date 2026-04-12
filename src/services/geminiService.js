@@ -5,7 +5,7 @@ const genAI = new GoogleGenerativeAI(
 );
 
 function getModel() {
-  const modelName = process.env.GEMINI_MODEL || process.env.AI_MODEL || 'gemini-1.5-flash';
+  const modelName = process.env.GEMINI_MODEL || process.env.AI_MODEL || 'gemini-2.0-flash';
   return genAI.getGenerativeModel({ model: modelName });
 }
 
