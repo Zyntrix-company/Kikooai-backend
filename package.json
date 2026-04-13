@@ -15,7 +15,16 @@
     "seed:resumes": "node src/seeds/resumes.js",
     "seed:all": "node src/seeds/users.js && node src/db/seed.js && node src/seeds/games.js && node src/seeds/contests.js && node src/seeds/resumes.js",
     "smoke": "node scripts/smoke-test.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "cross-env NODE_ENV=test node --test --test-reporter=spec tests/health.test.js tests/auth.test.js tests/exercises.test.js tests/games.test.js tests/resumes.test.js tests/audio.test.js tests/interview.test.js tests/contests.test.js tests/admin.test.js",
+    "test:health": "cross-env NODE_ENV=test node --test --test-reporter=spec tests/health.test.js",
+    "test:auth": "cross-env NODE_ENV=test node --test --test-reporter=spec tests/auth.test.js",
+    "test:exercises": "cross-env NODE_ENV=test node --test --test-reporter=spec tests/exercises.test.js",
+    "test:games": "cross-env NODE_ENV=test node --test --test-reporter=spec tests/games.test.js",
+    "test:resumes": "cross-env NODE_ENV=test node --test --test-reporter=spec tests/resumes.test.js",
+    "test:audio": "cross-env NODE_ENV=test node --test --test-reporter=spec tests/audio.test.js",
+    "test:interview": "cross-env NODE_ENV=test node --test --test-reporter=spec tests/interview.test.js",
+    "test:contests": "cross-env NODE_ENV=test node --test --test-reporter=spec tests/contests.test.js",
+    "test:admin": "cross-env NODE_ENV=test node --test --test-reporter=spec tests/admin.test.js"
   },
   "keywords": [],
   "author": "",
@@ -35,6 +44,7 @@
     "uuid": "^13.0.0"
   },
   "devDependencies": {
+    "cross-env": "^10.1.0",
     "eslint": "^10.0.3",
     "nodemon": "^3.1.14",
     "supertest": "^7.2.2"

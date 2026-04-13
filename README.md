@@ -1,8 +1,8 @@
 # KikooAI Backend
 
-Production-ready REST API for **KikooAI** — an AI-powered English learning + interview prep platform.
+Production-ready REST API for **KikooAI** — an AI-powered English learning, interview prep, mini-games, and competitive contests platform.
 
-Features: text exercises, XP progression, streaks, personalized daily assignments, direct audio upload, real-time transcription via Gemini AI, structured speaking feedback, resume analysis & roasting, live AI interview (Gemini Live), mock interview scoring, and an in-process job queue — all on a serverless Postgres database.
+**Base URL (production):** `https://kikooai-backend.onrender.com`
 
 ---
 
@@ -16,8 +16,10 @@ Features: text exercises, XP progression, streaks, personalized daily assignment
 | Auth | JWT (15m access token) + UUID refresh tokens (bcrypt-hashed) |
 | Validation | Joi |
 | File/Audio storage | Cloudinary v2 (client uploads directly — no proxy) |
-| AI | Google Gemini (`@google/generative-ai`) |
-| Background jobs | In-process `JobQueue` (setInterval, no Redis/Bull) |
+| AI | Google Gemini (`@google/generative-ai`, model: `gemini-2.0-flash`) |
+| Background jobs | In-process `JobQueue` (setInterval — see `docs/JOBS.md` for Bull+Redis upgrade path) |
+| PDF generation | pdfkit (contest certificates) |
+| Rate limiting | express-rate-limit |
 
 ---
 
@@ -26,49 +28,73 @@ Features: text exercises, XP progression, streaks, personalized daily assignment
 ```
 src/
 ├── db/
-│   ├── pool.js              # Singleton pg connection pool (Neon)
-│   └── migrate.js           # SQL migration runner (tracks applied files)
+│   ├── pool.js               # Singleton pg connection pool (Neon)
+│   └── migrate.js            # SQL migration runner (tracks applied files)
 ├── jobs/
-│   ├── JobQueue.js          # Lightweight in-process job queue (singleton)
-│   ├── transcriptionJob.js  # Audio transcription handler (Cloudinary → Gemini → DB)
-│   ├── resumeJob.js         # Resume analysis/roast handler (Gemini → DB)
-│   └── interviewJob.js      # Interview scoring handler (audio → transcribe → per-Q feedback)
+│   ├── JobQueue.js           # Lightweight in-process job queue (singleton)
+│   ├── transcriptionJob.js   # Audio transcription handler (Cloudinary → Gemini → DB)
+│   ├── resumeJob.js          # Resume analysis/roast handler (Gemini → DB)
+│   ├── interviewJob.js       # Interview scoring handler (audio → transcribe → per-Q feedback)
+│   └── retentionJob.js       # Audio retention cron (archive files older than 90 days)
 ├── middleware/
-│   ├── auth.js              # JWT Bearer verification → req.user
-│   ├── adminGuard.js        # is_admin check (runs after auth)
-│   ├── errorHandler.js      # Global 4-arg Express error handler
-│   └── validate.js          # Joi request body validator factory
+│   ├── auth.js               # JWT Bearer verification → req.user
+│   ├── adminGuard.js         # is_admin check (runs after auth)
+│   ├── errorHandler.js       # Global 4-arg Express error handler
+│   ├── rateLimiter.js        # express-rate-limit configs (auth/upload/scoring)
+│   └── validate.js           # Joi request body validator factory
 ├── migrations/
-│   ├── 001_users.sql        # users table
-│   ├── 002_profiles.sql     # profiles + refresh_tokens
-│   ├── 003_exercises.sql    # exercise_seeds + exercise_submissions
-│   ├── 004_audio.sql        # audio_files + transcripts + jobs
-│   ├── 005_resumes.sql      # resumes + resume_reports
-│   └── 006_interview.sql    # interview_rooms + job_listings + indexes
+│   ├── 001_users.sql         # users table
+│   ├── 002_profiles.sql      # profiles + refresh_tokens
+│   ├── 003_exercises.sql     # exercise_seeds + exercise_submissions
+│   ├── 004_audio.sql         # audio_files + transcripts + jobs
+│   ├── 005_resumes.sql       # resumes + resume_reports
+│   ├── 006_interview.sql     # interview_rooms + job_listings
+│   ├── 007_games.sql         # games + game_scores
+│   ├── 008_contests.sql      # contests + contest_participants + admin_actions
+│   ├── 009_admin.sql         # promo_codes + promo_code_redemptions + users.flags
+│   ├── 010_exports.sql       # exports + audio archived status
+│   └── 011_certificates.sql  # contest_participants.certificate_url
 ├── routes/
-│   ├── auth.js              # /auth/* and /users/me
-│   ├── exercises.js         # /exercises/*
-│   ├── audio.js             # /audio/* and /jobs/:id/status
-│   ├── resumes.js           # /resumes/*
-│   ├── interview.js         # /interview/*
-│   ├── jobs.js              # /jobs (list)
-│   └── assignments.js       # /assignments/daily
+│   ├── auth.js               # /auth/* and /users/me (+ DELETE /users/me GDPR)
+│   ├── exercises.js          # /exercises/*
+│   ├── audio.js              # /audio/* and /jobs/:id
+│   ├── resumes.js            # /resumes/*
+│   ├── interview.js          # /interview/*
+│   ├── jobs.js               # /jobs (list)
+│   ├── assignments.js        # /assignments/daily
+│   ├── games.js              # /games/:type/seed and /games/:type/score
+│   ├── contests.js           # /contests/*
+│   └── admin.js              # /admin/* (admin-only) + /promo-codes/redeem (auth)
 ├── services/
-│   ├── authService.js       # Auth DB logic (signup, login, refresh, profile)
-│   ├── exerciseService.js   # Exercise + energy + streak + speaking evaluation
-│   ├── cloudinaryService.js # Signed upload (audio+resume), verify, download, delete
-│   ├── geminiService.js     # Transcribe, analyse transcript, resume analysis, interview feedback + question generation
-│   ├── resumeService.js     # Resume CRUD + report creation + text extraction
-│   ├── interviewService.js  # Room lifecycle + config + question cache + report save
-│   └── assignmentService.js # Personalized daily assignment builder (XP-based)
-├── db/
-│   └── seed.js              # Exercise seed data — run once with npm run seed
+│   ├── authService.js        # Auth DB logic (signup, login, refresh, profile)
+│   ├── exerciseService.js    # Exercise + energy + streak + speaking evaluation
+│   ├── cloudinaryService.js  # Signed upload, verify, download, delete, buffer upload
+│   ├── geminiService.js      # Transcribe, analyse transcript, resume analysis, interview feedback
+│   ├── resumeService.js      # Resume CRUD + report creation + text extraction
+│   ├── interviewService.js   # Room lifecycle + config + question cache + report save
+│   ├── assignmentService.js  # Personalized daily assignment builder (XP-based)
+│   ├── gameService.js        # Game seed fetch + score submission
+│   ├── contestService.js     # Contest CRUD, join, leaderboard, rank recalc, prize distribution
+│   ├── adminService.js       # User management, badges, Pro, promo codes, logs, exports, job retry
+│   └── certificateService.js # PDF certificate generator (pdfkit)
+├── seeds/
+│   ├── exercises.js          # 9 exercise types × 3 difficulties + 6 speaking prompts
+│   ├── games.js              # 5 game types × 3 difficulties (15 seeds)
+│   ├── users.js              # 3 test users + 1 admin (idempotent)
+│   ├── contests.js           # 2 sample contests (1 active, 1 completed)
+│   └── resumes.js            # 2 resume + JD pairs for testing analysis
 ├── utils/
-│   ├── cloudinary.js        # Pre-configured Cloudinary v2 instance
-│   ├── gemini.js            # Gemini model factory
-│   ├── response.js          # success() / fail() response helpers
-│   └── sanitize.js          # sanitizeUser() — strips password_hash
-└── index.js                 # Entry point — mounts all routers, starts JobQueue
+│   ├── cloudinary.js         # Pre-configured Cloudinary v2 instance
+│   ├── gemini.js             # Gemini model factory
+│   ├── response.js           # success() / fail() response helpers
+│   └── sanitize.js           # sanitizeUser() — strips password_hash
+└── index.js                  # Entry point — mounts all routers, rate limiters, retention cron
+scripts/
+└── smoke-test.js             # End-to-end smoke test (all major flows)
+docs/
+├── openapi.yaml              # Full OpenAPI 3.0 specification (~50 endpoints)
+├── ENV.md                    # All environment variables documented
+└── JOBS.md                   # Job queue internals + Bull/Redis upgrade path
 ```
 
 ---
@@ -87,7 +113,7 @@ npm install
 cp .env.example .env
 ```
 
-Fill in the required values. See [Environment Variables](#environment-variables).
+Fill in all required variables. See [`docs/ENV.md`](./docs/ENV.md) for the full reference.
 
 ### 3. Run migrations
 
@@ -95,49 +121,63 @@ Fill in the required values. See [Environment Variables](#environment-variables)
 npm run migrate
 ```
 
-Migrations are tracked in a `migrations_run` table — each file runs in a transaction and is skipped if already applied.
+Applies all 11 migrations in order. Each runs in a transaction and is skipped if already applied (tracked in `migrations_run` table).
 
-### 4. Seed exercise data (required for exercises + assignments)
+### 4. Seed data
 
 ```bash
-npm run seed
-```
+# Seed everything at once (recommended for first-time setup)
+npm run seed:all
 
-Inserts 36 exercise seeds covering all 9 types across easy/medium/hard difficulties, plus 6 speaking prompts. Must be run at least once before testing exercises or daily assignments.
+# Or seed individually:
+npm run seed:users      # Test users + admin (required for smoke test)
+npm run seed:exercises  # Exercise seeds (required for exercises + assignments)
+npm run seed:games      # Game seeds (required for games)
+npm run seed:contests   # Sample contests
+npm run seed:resumes    # Sample resume + JD pairs
+```
 
 ### 5. Start the server
 
 ```bash
-# Development (auto-restart)
-npm run dev
-
-# Production
-npm start
+npm run dev    # Development (nodemon, hot reload)
+npm start      # Production
 ```
 
-Server starts on `PORT` (default `3000`). The `JobQueue` ticker starts automatically on import.
+Server starts on `PORT` (default `3000`). The JobQueue ticker and audio retention cron start automatically.
+
+### 6. Run smoke tests
+
+```bash
+# Against local server (run npm run dev first, seed:users required)
+npm run smoke
+
+# Against production
+BASE_URL=https://kikooai-backend.onrender.com/api/v1 \
+SMOKE_ADMIN_EMAIL=admin@kikoo.test \
+SMOKE_ADMIN_PASSWORD=Admin1234! \
+npm run smoke
+```
 
 ---
 
 ## Environment Variables
+
+See [`docs/ENV.md`](./docs/ENV.md) for the full table. Quick reference:
 
 | Variable | Required | Description |
 |---|---|---|
 | `DATABASE_URL` | ✅ | Neon PostgreSQL connection string |
 | `JWT_SECRET` | ✅ | Secret for signing access tokens |
 | `JWT_EXPIRY` | ✅ | Access token TTL (e.g. `15m`) |
-| `REFRESH_TOKEN_EXPIRY` | ✅ | Refresh token TTL (e.g. `30d`) |
+| `REFRESH_TOKEN_EXPIRY` | ✅ | Refresh token TTL in seconds (e.g. `604800`) |
 | `CLOUDINARY_CLOUD_NAME` | ✅ | Cloudinary cloud name |
 | `CLOUDINARY_API_KEY` | ✅ | Cloudinary API key |
 | `CLOUDINARY_API_SECRET` | ✅ | Cloudinary API secret |
-| `CLOUDINARY_AUDIO_FOLDER` | — | Upload folder prefix (default: `kikoo/audio`) |
 | `GEMINI_API_KEY` | ✅ | Google AI Studio API key |
-| `GEMINI_MODEL` | — | Gemini model ID (default: `gemini-1.5-flash`) — use `gemini-2.0-flash` for current API |
-| `AI_API_KEY` | — | Alias for `GEMINI_API_KEY` (legacy) |
-| `ADMIN_SECRET` | ✅ | Secret for admin operations |
-| `ENERGY_PER_MINUTE` | — | Energy rate (default: `1`) |
-| `MIN_DAILY_ENERGY_FOR_STREAK` | — | Exercises needed for streak (default: `10`) |
-| `AUDIO_ARCHIVE_AFTER_DAYS` | — | Days before audio archival (default: `90`) |
+| `GEMINI_MODEL` | — | Gemini model (default: `gemini-2.0-flash`) |
+| `APP_BASE_URL` | — | Public backend URL — used for contest share links |
+| `AUDIO_RETENTION_DAYS` | — | Days before audio archival (default: `90`) |
 | `PORT` | — | Server port (default: `3000`) |
 | `NODE_ENV` | — | `development` or `production` |
 
@@ -145,15 +185,16 @@ Server starts on `PORT` (default `3000`). The `JobQueue` ticker starts automatic
 
 ## API Reference
 
-**Base URL:** `http://localhost:3000`
-**Auth:** `Authorization: Bearer <accessToken>` (🔒 = required)
+**Base URL:** `https://kikooai-backend.onrender.com` (production) · `http://localhost:3000` (dev)
+**Auth header:** `Authorization: Bearer <accessToken>` — required on all 🔒 endpoints.
 
-All responses follow this envelope:
-
+**Response envelope:**
 ```json
 { "success": true,  "data": { ... } }
-{ "success": false, "error": "message", "code": "ERROR_CODE" }
+{ "success": false, "error": "Human-readable message", "code": "ERROR_CODE" }
 ```
+
+Full OpenAPI 3.0 spec: [`docs/openapi.yaml`](./docs/openapi.yaml)
 
 ---
 
@@ -161,408 +202,221 @@ All responses follow this envelope:
 
 #### `GET /healthz`
 
-No auth required. Returns database status, env var completeness, job queue depth, and mounted routes.
+No auth. Returns DB status, env var completeness, job queue depth, and mounted routes.
 
 ---
 
 ### Auth
 
-#### `POST /api/v1/auth/signup`
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| POST | `/api/v1/auth/signup` | — | Register. Returns user + token pair. |
+| POST | `/api/v1/auth/login` | — | Login. Returns user + token pair. |
+| POST | `/api/v1/auth/refresh` | — | Rotate refresh token. Body: `{ refreshToken }` |
+| POST | `/api/v1/auth/logout` | 🔒 | Invalidate all refresh tokens. |
 
-| Field | Rules |
-|---|---|
-| `email` | Valid email, unique |
-| `password` | Min 8 chars |
-| `username` | Alphanumeric, 3–30 chars, unique |
-| `fullname` | String, required |
-| `role` | `student` · `job_seeker` · `professional` |
+Signup body: `{ email, password (min 8), username (alphanum 3–30), fullname, role (student|job_seeker|professional) }`
+Login body: `{ email, password }`
 
-**201** → `{ user, accessToken, refreshToken }`
-
----
-
-#### `POST /api/v1/auth/login`
-
-**200** → `{ user, accessToken, refreshToken }`
+**201/200** → `{ user, accessToken, refreshToken }`
 
 ---
 
-#### `POST /api/v1/auth/refresh`
+### Users
 
-```json
-{ "refreshToken": "uuid-v4" }
-```
-
-**200** → new token pair. Old refresh token invalidated.
-
----
-
-#### `POST /api/v1/auth/logout` 🔒
-
-Invalidates all refresh tokens for the user.
-
----
-
-### User
-
-#### `GET /api/v1/users/me` 🔒
-
-Returns the authenticated user + full profile (XP, streak, badges, subscription).
-
-#### `PATCH /api/v1/users/me` 🔒
-
-Update any subset of: `interests`, `education`, `motive`, `targets`, `resume_ref`.
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| GET | `/api/v1/users/me` | 🔒 | Current user + full profile (XP, streak, badges, subscription). |
+| PATCH | `/api/v1/users/me` | 🔒 | Update profile fields: `interests`, `education`, `motive`, `targets`, `resume_ref`. |
+| DELETE | `/api/v1/users/me` | 🔒 | GDPR erasure — deletes all Cloudinary assets then hard-deletes account. |
 
 ---
 
 ### Exercises
 
-All exercise routes require authentication.
+All routes 🔒. Rate limited: 30 req/min.
 
-#### `GET /api/v1/exercises/:type/seed?difficulty=easy` 🔒
-
-Returns a random seed. `answer_key` stripped from response.
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/v1/exercises/:type/seed?difficulty=` | Random seed. `answer_key` stripped. |
+| POST | `/api/v1/exercises/:type/submit` | Submit answer. Body: `{ seed_id, user_answer }`. Returns `{ is_correct, score, xp_awarded, explanation }`. **402** on energy depleted. |
+| GET | `/api/v1/exercises/speaking/prompt` | Speaking prompt matched to user CEFR level. |
+| POST | `/api/v1/exercises/speaking/evaluate` | Evaluate audio speaking. Body: `{ audio_id, prompt_id }`. |
 
 **Types:** `fillup` · `jumbled_word` · `jumbled_sentence` · `vocab` · `synonyms` · `antonyms` · `pronunciation_spelling` · `grammar_transform` · `typing_from_audio`
 
-#### `POST /api/v1/exercises/:type/submit` 🔒
-
-```json
-{ "seed_id": "uuid", "user_answer": "goes" }
-```
-
-**200** → `{ is_correct, score, xp_awarded, explanation, hints }`
-**402 ENERGY_DEPLETED** → `{ error, code, resets_at }`
-
-#### `GET /api/v1/exercises/speaking/prompt` 🔒
-
-Returns a speaking prompt matched to the user's XP/CEFR level.
-
-#### `POST /api/v1/exercises/speaking/evaluate` 🔒
-
-```json
-{ "audio_id": "uuid", "prompt_id": "uuid" }
-```
-
-**200** → `{ score, xp_awarded, feedback }`
+**Difficulty:** `easy` · `medium` · `hard`
 
 ---
 
 ### Audio
 
-Full flow: `upload-init → [upload to Cloudinary] → complete → poll /jobs/:id/status → GET transcript`
+Full flow: `upload-init → upload to Cloudinary → complete → poll job → fetch transcript`
 
-#### `POST /api/v1/audio/upload-init` 🔒
-
-Get a signed Cloudinary upload URL. Returns `upload_id` + Cloudinary params.
-
-#### `POST /api/v1/audio/complete` 🔒
-
-Confirm upload. Enqueues transcription job. Returns `{ audio_id, job_id }` (202).
-
-#### `GET /api/v1/jobs/:job_id/status` 🔒
-
-Poll job progress. `status`: `pending` → `processing` → `done` | `failed`.
-
-#### `GET /api/v1/audio/:audio_id/transcript` 🔒
-
-Fetch completed transcript + AI feedback (pronunciation, vocabulary, grammar, fluency).
-
-#### `GET /api/v1/audio` 🔒
-
-List 20 most recent audio files.
-
-#### `DELETE /api/v1/audio/:audio_id` 🔒
-
-Deletes from Cloudinary and DB (cascades to transcripts).
-
----
-
-### Resumes
-
-All resume routes require authentication.
-
-#### `POST /api/v1/resumes/upload-init` 🔒
-
-Get a signed Cloudinary upload URL for a PDF/DOCX/TXT resume.
-
-**200** → `{ resume_id, cloudinary: { uploadUrl, signature, timestamp, apiKey, cloudName, folder } }`
-
-Upload URL targets Cloudinary's `/raw/upload` endpoint.
-
-#### `POST /api/v1/resumes/upload-complete` 🔒
-
-Confirm the Cloudinary upload and attach it to the resume record.
-
-```json
-{
-  "resume_id": "uuid",
-  "cloudinary_public_id": "kikoo/resumes/<user-id>/my-cv",
-  "cloudinary_url": "https://res.cloudinary.com/...",
-  "format": "pdf",
-  "title": "My Resume"
-}
-```
-
-**200** → `{ resume }`
-
-#### `POST /api/v1/resumes/save-json` 🔒
-
-Save a structured resume as JSON (no file upload needed).
-
-```json
-{ "title": "My Resume", "json_blob": { ... } }
-```
-
-**201** → `{ resume }`
-
-#### `POST /api/v1/resumes/analyze` 🔒
-
-Trigger an ATS-style AI analysis against a job description.
-
-```json
-{ "resume_id": "uuid", "jd_text": "at least 50 chars...", "cover_letter": "optional" }
-```
-
-**202** → `{ report_id, job_id, message }`
-
-#### `POST /api/v1/resumes/roast` 🔒
-
-Same as analyze but returns witty, sharp feedback in `roast_lines`.
-
-**202** → `{ report_id, job_id, message }`
-
-#### `GET /api/v1/resumes/reports/:report_id` 🔒
-
-Poll analysis result. **202** while processing. **200** when done with full `report` JSON:
-`strengths`, `ats_issues`, `suggested_bullets`, `improvement_steps`, `keywords_missing/matched`, `score`, `score_breakdown`, `summary`, `roast_lines`.
-
-#### `GET /api/v1/resumes` 🔒
-
-List 20 most recent resumes.
-
-#### `DELETE /api/v1/resumes/:resume_id` 🔒
-
-Deletes from Cloudinary (if file resume) and DB (cascades to resume_reports).
-
----
-
-### Assignments
-
-#### `GET /api/v1/assignments/daily` 🔒
-
-Returns a personalized daily exercise set based on the user's XP level.
-
-**XP → difficulty mapping:**
-
-| XP | Difficulty | CEFR |
+| Method | Endpoint | Description |
 |---|---|---|
-| ≤ 300 | easy | A1/A2 |
-| ≤ 1500 | medium | B1/B2 |
-| > 1500 | hard | C1/C2 |
-
-Returns 6 exercises (1× fillup, jumbled_sentence, vocab, synonyms, grammar_transform, speaking_prompt). Falls back to medium/easy if no seed exists at the user's level. `answer_key` is stripped.
-
-**200** →
-```json
-{
-  "level": { "xp": 450, "cefr": "B1/B2", "difficulty": "medium", "daily_energy_used": 3 },
-  "assignments": [
-    { "type": "fillup", "seed": { "id": "uuid", "type": "fillup", "difficulty": "medium", "payload": { ... } } },
-    { "type": "jumbled_sentence", "seed": { ... } },
-    { "type": "vocab", "seed": { ... } },
-    { "type": "synonyms", "seed": { ... } },
-    { "type": "grammar_transform", "seed": { ... } },
-    { "type": "speaking_prompt", "seed": { ... } }
-  ],
-  "progress": { "completed_today": 3, "total": 6 }
-}
-```
-
-Submit each assignment using the existing `POST /api/v1/exercises/:type/submit` endpoint with the seed's `id`.
-
----
-
-### Interview
-
-All interview routes require authentication.
-
-#### `GET /api/v1/interview/config` 🔒
-
-Returns Gemini credentials for the client to open a Gemini Live audio session directly.
-
-**200** →
-```json
-{
-  "gemini_api_key": "AIza...",
-  "live_model": "gemini-2.5-flash-native-audio-preview-09-2025",
-  "analysis_model": "gemini-2.5-flash-preview-05-20",
-  "voices": { "emma": "Kore", "john": "Puck" }
-}
-```
-
----
-
-#### `GET /api/v1/interview/questions?role=&round=&difficulty=` 🔒
-
-Returns 12 AI-generated interview questions for the given combination. Results are **cached in-memory for 1 hour** per unique `role+round+difficulty` key.
-
-| Param | Default | Notes |
-|---|---|---|
-| `role` | — | **Required** |
-| `round` | `Technical` | e.g. HR, Coding, System Design |
-| `difficulty` | `Medium` | Easy · Medium · Hard |
-
-**200** → `{ questions: [{ question, difficulty, category }] }`
-**400** → `MISSING_ROLE`
-**502** → `AI_SERVICE_ERROR` / `AI_PARSE_ERROR`
-
----
-
-#### `POST /api/v1/interview/rooms/:room_id/save-report` 🔒
-
-Saves the client-generated transcript and analysis report after a Gemini Live session ends. Sets room `status = done`.
-
-```json
-{
-  "transcript": [
-    { "role": "Dr. Emma", "text": "Tell me about yourself." },
-    { "role": "You", "text": "I am a backend developer..." }
-  ],
-  "report": {
-    "score": 78,
-    "feedback": "Strong technical answers.",
-    "strengths": ["Clear articulation"],
-    "improvements": ["More detail on system design"],
-    "technicalAccuracy": "Strong",
-    "communicationStyle": "Confident"
-  }
-}
-```
-
-**200** → `{ room_id, status: "done" }`
-
----
-
-#### Live Interview End-to-End Flow
-
-```
-1. POST /interview/rooms/create        { job_role, round, difficulty, duration }
-2. GET  /interview/config              ← Gemini key + voice
-3. GET  /interview/questions?role=...  ← 12 AI questions (cached)
-4. POST /interview/rooms/:id/record/start
-5. [Gemini Live runs client ↔ Gemini directly — no backend proxy]
-6. POST /interview/rooms/:id/record/stop  { audio_id }   (optional, if audio recorded)
-7. POST /interview/rooms/:id/save-report  { transcript, report }
-8. GET  /interview/rooms/:id/result       ← fetch saved result anytime
-```
-
----
-
-#### `POST /api/v1/interview/rooms/create` 🔒
-
-Create a new interview room with optional settings and questions.
-
-```json
-{
-  "duration_mins": 30,
-  "job_role": "Backend Developer",
-  "company": "Acme Corp",
-  "difficulty": "medium",
-  "questions": [
-    { "question_text": "Tell me about yourself." }
-  ]
-}
-```
-
-**201** → `{ room_id, room_token, settings, status }`
-
-#### `POST /api/v1/interview/rooms/:room_id/record/start` 🔒
-
-Mark the room as recording. **200** → `{ room_id, status, start_ts }`
-
-#### `POST /api/v1/interview/rooms/:room_id/record/stop` 🔒
-
-Stop recording, attach audio, and trigger AI processing.
-
-```json
-{ "audio_id": "uuid" }
-```
-
-**202** → `{ room_id, job_id, status: "processing", message }`
-
-#### `GET /api/v1/interview/rooms/:room_id/result` 🔒
-
-Get interview result. Returns `{ room_id, status, result }`.
-`result` contains: `transcript`, `question_results` (per-question feedback), `overall_score`, `summary`.
-
-#### `GET /api/v1/interview/rooms` 🔒
-
-List 20 most recent interview rooms.
-
-#### `POST /api/v1/interview/questions/evaluate` 🔒
-
-Evaluate any question + answer immediately (no room needed).
-
-```json
-{
-  "question_text": "Explain SQL vs NoSQL.",
-  "answer_text": "SQL uses schemas...",
-  "job_role": "Backend Developer"
-}
-```
-
-At least one of `answer_text` or `audio_id` required.
-
-**200** → `{ feedback, overall_score }`
-
-Feedback contains: `relevance_score`, `communication_score`, `structure_score`, `confidence_indicators`, `star_method_used`, `strengths`, `improvements`, `model_answer_outline`, `overall_score`, `one_line_verdict`.
+| POST | `/api/v1/audio/upload-init` 🔒 | Get signed Cloudinary upload URL. Body: `{ filename, format, context_type, duration_seconds? }` |
+| POST | `/api/v1/audio/complete` 🔒 | Confirm upload. Returns `{ audio_id, job_id }` (202). |
+| GET | `/api/v1/audio/:id/transcript` 🔒 | Fetch completed transcript + AI feedback. |
+| GET | `/api/v1/audio` 🔒 | List 20 most recent audio files. |
+| DELETE | `/api/v1/audio/:id` 🔒 | Delete from Cloudinary + DB (cascades to transcripts). |
 
 ---
 
 ### Jobs
 
-#### `GET /api/v1/jobs` 🔒
-
-List the 20 most recent jobs for the authenticated user.
-
-**200** → `{ jobs: [ { id, type, status, progress_pct, error_message, created_at, updated_at } ] }`
-
-#### `GET /api/v1/jobs/:job_id/status` 🔒
-
-Poll a specific job's status. (Also accessible at `/api/v1/jobs/:job_id/status` via the audio router.)
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/v1/jobs` 🔒 | List 20 most recent jobs for authenticated user. |
+| GET | `/api/v1/jobs/:id` 🔒 | Poll job status: `pending` → `processing` → `done` \| `failed`. Returns `progress_pct`. |
 
 ---
 
-## Background Job Queue
+### Resumes
 
-The `JobQueue` (`src/jobs/JobQueue.js`) is an in-process singleton that runs without Redis or Bull.
+All routes 🔒.
 
-- Polls every **2 seconds** with `setInterval`
-- Processes one job at a time (FIFO)
-- Retries failed jobs up to **3 attempts** with **exponential backoff** (2s, 4s, 8s)
-- Persists all state to the `jobs` DB table
-- Supports pre-created job rows (pass `jobId` in options to `enqueue()`)
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/api/v1/resumes/upload-init` | Get signed Cloudinary URL for PDF/DOCX/TXT. |
+| POST | `/api/v1/resumes/upload-complete` | Confirm + verify upload. Body: `{ resume_id, cloudinary_public_id, cloudinary_url, format, title? }` |
+| POST | `/api/v1/resumes/save-json` | Save structured resume as JSON. Body: `{ title, json_blob }` |
+| POST | `/api/v1/resumes/analyze` | Trigger AI analysis. Body: `{ resume_id, jd_text (min 50), cover_letter? }`. Returns **202** `{ report_id, job_id }` |
+| POST | `/api/v1/resumes/roast` | Same as analyze, witty commentary in `roast_lines`. |
+| GET | `/api/v1/resumes/reports/:id` | Poll report. **202** processing, **200** done with full JSON. |
+| GET | `/api/v1/resumes` | List 20 most recent resumes. |
+| DELETE | `/api/v1/resumes/:id` | Delete resume + all reports. |
 
-**Supported job types:** `transcription` · `resume_analyze` · `interview_score`
+---
+
+### Assignments
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/v1/assignments/daily` 🔒 | Personalized daily exercise set (6 exercises). XP → difficulty mapping: ≤300 easy, ≤1500 medium, >1500 hard. |
+
+Returns `{ level: { xp, cefr, difficulty, daily_energy_used }, assignments: [...], progress: { completed_today, total } }`.
+
+---
+
+### Interview
+
+All routes 🔒.
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/v1/interview/config` | Gemini credentials for client-side Gemini Live session. |
+| GET | `/api/v1/interview/questions?role=&round=&difficulty=` | 12 AI-generated questions (cached 1h per key). |
+| POST | `/api/v1/interview/rooms/create` | Create room. Body: `{ job_role, company?, difficulty?, duration_mins?, questions? }` |
+| POST | `/api/v1/interview/rooms/:id/record/start` | Mark room as recording. |
+| POST | `/api/v1/interview/rooms/:id/record/stop` | Stop + enqueue AI scoring. Body: `{ audio_id }`. Returns **202** `{ job_id }` |
+| GET | `/api/v1/interview/rooms/:id/result` | Fetch room result (transcript, per-question feedback, overall score). |
+| POST | `/api/v1/interview/rooms/:id/save-report` | Save client-generated Gemini Live report. Body: `{ transcript, report }` |
+| GET | `/api/v1/interview/rooms` | List 20 most recent rooms. |
+| POST | `/api/v1/interview/questions/evaluate` | Evaluate any question+answer immediately. Body: `{ question_text, answer_text?, audio_id?, job_role? }` |
+
+**Job listings:**
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/v1/jobs/listings?title=&location=&company=` 🔒 | Filter job listings. |
+
+---
+
+### Games
+
+All routes 🔒. Rate limited: 30 req/min.
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/v1/games/:type/seed` | Random seed for game type. `answer_key` stripped. Returns `{ game: { id, type, difficulty, config, seed_json } }` |
+| POST | `/api/v1/games/:type/score` | Submit score. Body: `{ game_id, score, combo?, hearts_left?, time_taken_seconds?, metadata? }`. Returns `{ saved, rank }` |
+
+**Game types:** `conexo` · `speed_reading` · `contextooo` · `word_blitz` · `guess_the_word`
+
+---
+
+### Contests
+
+All routes 🔒.
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| POST | `/api/v1/contests` | Admin | Create contest. Body: `{ title, game_type, start_ts?, end_ts?, prize_info?, settings? }` |
+| GET | `/api/v1/contests` | 🔒 | List active contests with participant counts. |
+| POST | `/api/v1/contests/:token/join` | 🔒 | Join contest by token. Returns `{ participant_token, game_seed }`. No energy deducted. |
+| GET | `/api/v1/contests/:token/leaderboard` | 🔒 | Live leaderboard (RANK window function). Returns `{ leaderboard, my_rank, my_score }`. Each entry includes `certificate_url` (null until contest completed + winner). |
+| POST | `/api/v1/contests/:token/score` | 🔒 | Submit score. Only updates if higher than current. Recalculates ranks. Body: `{ score, metadata? }` |
+| POST | `/api/v1/contests/:token/complete` | Admin | Finalize contest: freeze ranks, grant Pro to rank-1 winners, generate + upload certificate PDFs, audit log. |
+
+---
+
+### Admin
+
+All routes 🔒 + admin-only (except `/promo-codes/redeem`). Every action is audit-logged to `admin_actions`.
+
+**User management:**
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/v1/admin/users?search=&limit=&offset=` | List users (paginated, ILIKE search on email+username). |
+| GET | `/api/v1/admin/users/:id` | Full user detail + profile + activity counts. |
+| POST | `/api/v1/admin/users/:id/ban` | Ban user. Body: `{ reason? }` |
+| POST | `/api/v1/admin/users/:id/unban` | Unban user. |
+| POST | `/api/v1/admin/users/:id/flag` | Flag user. Body: `{ reason }` |
+| DELETE | `/api/v1/admin/users/:id` | Hard-delete user (cannot self-delete). |
+| POST | `/api/v1/admin/users/:id/badges/assign` | Assign badge. Body: `{ badge_id, badge_name }` |
+| POST | `/api/v1/admin/users/:id/badges/remove` | Remove badge. Body: `{ badge_id }` |
+| POST | `/api/v1/admin/users/:id/grant-pro` | Grant Pro subscription. Body: `{ days (1–3650) }` |
+| POST | `/api/v1/admin/users/:id/revoke-pro` | Revoke Pro subscription immediately. |
+
+**Promo codes:**
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| POST | `/api/v1/admin/promo-codes` | Admin | Create promo code. Body: `{ code, discount_pct, max_uses?, grants_pro?, pro_days?, expires_at? }` |
+| GET | `/api/v1/admin/promo-codes` | Admin | List all codes with redemption stats. |
+| PATCH | `/api/v1/admin/promo-codes/:id` | Admin | Toggle `is_active`. |
+| POST | `/api/v1/promo-codes/redeem` | 🔒 | Redeem a code. Body: `{ code }`. Grants Pro if `grants_pro = true`. |
+
+**Logs, jobs, exports:**
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/v1/admin/logs?status=&type=&limit=&offset=` | Job logs (filterable). |
+| POST | `/api/v1/admin/jobs/:job_id/retry` | Re-enqueue a failed job. |
+| POST | `/api/v1/admin/export` | Trigger async CSV export. Body: `{ export_type: users|transcripts|contest_results|game_scores }`. Returns **202** `{ export_id }` |
+| GET | `/api/v1/admin/exports` | List export jobs and their Cloudinary download URLs. |
+
+---
+
+## Background Jobs
+
+The `JobQueue` (`src/jobs/JobQueue.js`) is an in-process singleton — no Redis or Bull required.
+
+- Polls every **2 seconds**
+- One job at a time (FIFO)
+- **3 attempts max** with exponential backoff (2s → 4s → 8s)
+- All state persisted to `jobs` DB table
+
+**Supported types:** `transcription` · `resume_analyze` · `resume_roast` · `interview_score`
+
+See [`docs/JOBS.md`](./docs/JOBS.md) for internals, monitoring, and the Bull+Redis upgrade path.
 
 ---
 
 ## Energy & Streak System
 
 ### Daily Energy
-- Each submitted exercise costs **1 energy**
-- Max **50 exercises** per day
-- Resets at **midnight UTC**
-- Exceeding limit: `402 ENERGY_DEPLETED` with `resets_at`
+- Each submitted exercise costs **1 energy** (max 50/day, resets midnight UTC)
+- Exceeding limit → `402 ENERGY_DEPLETED` with `resets_at`
+- Contests **never** deduct energy
 
 ### Streak
-- Increments when `daily_energy_count ≥ MIN_DAILY_ENERGY_FOR_STREAK` (default: 10)
-- One increment per calendar day
-- Bonus XP on increment: `streak × 5`
+- Increments when `daily_energy_count ≥ MIN_DAILY_ENERGY_FOR_STREAK` (default: 1)
+- One increment per calendar day, bonus XP = `streak × 5`
 
 ### Streak Badges
-
 | Milestone | Badge ID |
 |---|---|
 | 7 days | `streak_7` |
@@ -571,65 +425,66 @@ The `JobQueue` (`src/jobs/JobQueue.js`) is an in-process singleton that runs wit
 
 ---
 
-## Database Schema
+## Database Schema (11 migrations)
 
 ```
-users
-  id · email · password_hash · username · fullname
-  role · is_banned · is_flagged · is_admin · created_at · last_active
+users               id · email · password_hash · username · fullname · role
+                    is_banned · is_flagged · is_admin · flags(jsonb) · created_at · last_active
 
-profiles (1:1 with users)
-  user_id · interests[] · education · motive · targets
-  resume_ref · subscription_status · pro_expires_at
-  streak · xp · daily_energy_count · energy_reset_date
-  badges · last_streak_update
+profiles            user_id · interests[] · education · motive · targets · resume_ref
+                    subscription_status · pro_expires_at
+                    streak · xp · daily_energy_count · energy_reset_date
+                    badges(jsonb) · last_streak_update
 
-refresh_tokens
-  id · user_id · token_hash · expires_at · created_at
+refresh_tokens      id · user_id · token_hash · expires_at
 
-exercise_seeds
-  id · type · difficulty · payload · created_at
+exercise_seeds      id · type · difficulty · payload(jsonb)
+exercise_submissions id · user_id · seed_id · user_answer · is_correct · score · xp_awarded
 
-exercise_submissions
-  id · user_id · seed_id · user_answer
-  is_correct · score · xp_awarded · submitted_at
+audio_files         id · user_id · cloudinary_public_id · cloudinary_url
+                    format · status(uploaded|processing|done|failed|archived)
+                    context_type · archived_at
+transcripts         id · audio_id · user_id · raw_text · segments · asr_confidence
+                    feedback_json · schema_version
 
-audio_files
-  id · user_id · cloudinary_public_id · cloudinary_url
-  duration_seconds · format
-  status (uploaded | processing | done | failed)
-  context_type (speaking | interview | speed_reading)
-  archived_at · created_at
+jobs                id · type · status · progress_pct · user_id · payload_ref
+                    error_message · attempts
 
-transcripts
-  id · audio_id · user_id · raw_text · segments
-  asr_confidence · feedback_json · schema_version · created_at
+resumes             id · user_id · title · json_blob · cloudinary_public_id
+                    cloudinary_url · file_format
+resume_reports      id · resume_id · job_id · jd_text · cover_letter · analysis_type
+                    report_json · score · status
 
-jobs
-  id · type · status (pending | processing | done | failed)
-  progress_pct · user_id · payload_ref
-  error_message · attempts · created_at · updated_at
+interview_rooms     id · host_id · room_token · settings · status · start_ts · end_ts
+                    audio_id · result_json
+job_listings        id · title · company · location · job_type · description · url
 
-resumes
-  id · user_id · title · json_blob
-  cloudinary_public_id · cloudinary_url · file_format
-  created_at · updated_at
+games               id · type · difficulty · config(jsonb) · seed_json(jsonb) · is_active
+game_scores         id · user_id · game_id · score · combo · hearts_left
+                    time_taken_seconds · metadata(jsonb)
 
-resume_reports
-  id · resume_id · job_id · jd_text · cover_letter
-  analysis_type (analyze | roast)
-  report_json · score · status (pending | processing | done | failed)
-  created_at
+contests            id · creator_id · game_type · title · token · share_link
+                    start_ts · end_ts · prize_info(jsonb) · settings(jsonb) · status
+contest_participants id · contest_id · user_id · participant_token · score · rank
+                    game_seed_id · certificate_url · joined_at
 
-interview_rooms
-  id · host_id · room_token · settings
-  status (created | recording | processing | done | failed)
-  start_ts · end_ts · audio_id · result_json · created_at
+admin_actions       id · admin_id · action · target_type · target_id · metadata(jsonb)
+promo_codes         id · code · discount_pct · max_uses · uses · grants_pro
+                    pro_days · expires_at · created_by · is_active
+promo_code_redemptions id · code_id · user_id · redeemed_at
 
-job_listings
-  id · title · company · location · job_type · description
-  url · source (admin | partner) · is_active · created_at
+exports             id · requested_by · export_type · file_url · status · error_message
 ```
+
+---
+
+## Rate Limiting
+
+| Limiter | Endpoints | Window | Max |
+|---|---|---|---|
+| `authLimiter` | `/auth/signup`, `/auth/login` | 15 min | 10 req |
+| `uploadLimiter` | `/audio/upload-init`, `/resumes/upload-init` | 15 min | 20 req |
+| `scoringLimiter` | `/exercises/*`, `/games/*` | 1 min | 30 req |
 
 ---
 
@@ -641,91 +496,86 @@ job_listings
 | `INVALID_TOKEN` | 401 | Missing or expired JWT |
 | `INVALID_REFRESH_TOKEN` | 401 | Bad or expired refresh token |
 | `ACCOUNT_BANNED` | 403 | User account is suspended |
+| `FORBIDDEN` | 403 | Admin-only endpoint |
 | `DUPLICATE_USER` | 409 | Email or username already in use |
 | `VALIDATION_ERROR` | 400 | Joi schema failed |
-| `INVALID_TYPE` | 400 | Unknown exercise type |
+| `INVALID_TYPE` | 400 | Unknown exercise or game type |
 | `NOT_FOUND` | 404 | Route doesn't exist |
 | `ENERGY_DEPLETED` | 402 | Daily exercise limit hit |
-| `AUDIO_NOT_FOUND` | 404 | Audio file doesn't exist or wrong owner |
-| `JOB_NOT_FOUND` | 404 | Job doesn't exist or wrong owner |
-| `RESUME_NOT_FOUND` | 404 | Resume doesn't exist or wrong owner |
-| `REPORT_NOT_FOUND` | 404 | Resume report doesn't exist or wrong owner |
-| `ANALYSIS_FAILED` | 500 | Resume report job completed with failure |
-| `ROOM_NOT_FOUND` | 404 | Interview room doesn't exist or wrong owner |
-| `MISSING_ROLE` | 400 | `role` query param missing on /interview/questions |
-| `ROOM_ALREADY_ACTIVE` | 400 | Room is already recording or completed |
-| `ROOM_NOT_RECORDING` | 400 | Tried to stop a non-recording room |
+| `AUDIO_NOT_FOUND` | 404 | Audio file missing or wrong owner |
+| `JOB_NOT_FOUND` | 404 | Job missing or wrong owner |
+| `JOB_NOT_FAILED` | 400 | Retry attempted on non-failed job |
+| `RESUME_NOT_FOUND` | 404 | Resume missing or wrong owner |
+| `REPORT_NOT_FOUND` | 404 | Resume report missing or wrong owner |
+| `ROOM_NOT_FOUND` | 404 | Interview room missing or wrong owner |
+| `ROOM_ALREADY_ACTIVE` | 400 | Room already recording or completed |
+| `ROOM_NOT_RECORDING` | 400 | Stop called on non-recording room |
 | `ANSWER_REQUIRED` | 400 | Neither `answer_text` nor `audio_id` provided |
-| `FILE_NOT_FOUND_ON_CLOUDINARY` | 400 | Resume file not found on Cloudinary |
-| `CLOUDINARY_ERROR` | 400 | Cloudinary API error |
 | `JD_TOO_SHORT` | 400 | Job description must be at least 50 characters |
+| `CONTEST_NOT_FOUND` | 404 | Contest token not found |
+| `CONTEST_NOT_ACTIVE` | 400 | Contest is not active (draft or completed) |
+| `ALREADY_JOINED` | 409 | User already joined this contest |
+| `NOT_A_PARTICIPANT` | 404 | Score submitted without joining |
+| `ALREADY_COMPLETED` | 400 | Contest already completed |
+| `USER_NOT_FOUND` | 404 | Admin target user not found |
+| `ALREADY_BANNED` | 400 | User already banned |
+| `NOT_BANNED` | 400 | Unban called on non-banned user |
+| `SELF_DELETE` | 400 | Admin tried to delete own account |
+| `BADGE_ALREADY_ASSIGNED` | 409 | Badge already on user profile |
+| `BADGE_NOT_FOUND` | 404 | Badge not found on user profile |
+| `NOT_PRO` | 400 | Revoke Pro called on free user |
+| `PROMO_NOT_FOUND` | 404 | Promo code not found |
+| `PROMO_INACTIVE` | 400 | Promo code deactivated |
+| `PROMO_EXPIRED` | 400 | Promo code past expiry date |
+| `PROMO_EXHAUSTED` | 400 | Promo code usage limit reached |
+| `ALREADY_REDEEMED` | 409 | User already redeemed this code |
+| `FILE_NOT_FOUND_ON_CLOUDINARY` | 400 | File not verifiable on Cloudinary |
 | `AI_SERVICE_ERROR` | 502 | Gemini API failure |
-| `AI_PARSE_ERROR` | 502 | Gemini returned malformed JSON (after retry) |
+| `AI_PARSE_ERROR` | 502 | Gemini returned malformed JSON |
 
 ---
 
-## Security Notes
+## Security
 
-- Passwords hashed with **bcrypt (12 rounds)**
-- Refresh tokens stored as **bcrypt hashes (10 rounds)** — raw token never persisted
-- `password_hash` is **never** returned in any API response
-- `answer_key` stripped from all exercise seed responses
-- Cloudinary uploads use **signed requests** — clients cannot bypass folder or type restrictions
-- Stack traces **hidden in production** (`NODE_ENV=production`)
+- Passwords: **bcrypt (12 rounds)**
+- Refresh tokens: stored as **bcrypt hashes** — raw token never persisted
+- `password_hash` never returned in any API response
+- `answer_key` stripped from all exercise and game seed responses
+- Cloudinary uploads use **signed requests** — clients cannot bypass folder restrictions
 - All SQL uses **parameterized statements** — no string interpolation
-- Gemini errors are caught and normalised — raw AI error messages never sent to client
-
----
-
-## Postman Collection
-
-Import `KikooAI.postman_collection.json` from the project root.
-
-**Collection variables auto-managed:**
-
-| Variable | Set by |
-|---|---|
-| `accessToken` | Login / Signup |
-| `refreshToken` | Login / Signup |
-| `seedId` | Get any exercise seed · Get Daily Assignment (first seed) |
-| `uploadId` | Audio upload-init |
-| `audioId` | Audio complete |
-| `jobId` | Audio complete / Resume analyze / Interview stop |
-| `resumeId` | Resume save-json / upload-complete |
-| `reportId` | Resume analyze / roast |
-| `roomId` | Interview room create |
-
-**Includes example responses for every endpoint** including all error cases.
-
----
-
-## Frontend Guide
-
-See [`FRONTEND_IMPLEMENTATION_GUIDE.md`](./FRONTEND_IMPLEMENTATION_GUIDE.md) for a complete frontend integration reference including:
-- Code snippets for all flows
-- Cloudinary upload helpers
-- Token refresh interceptor example
-- Polling helpers
-- Complete flow diagrams
+- Stack traces hidden in production (`NODE_ENV=production`)
+- Rate limiting on all sensitive endpoints
+- GDPR: `DELETE /users/me` purges all Cloudinary assets then hard-deletes the account
+- Audio retention cron archives files older than 90 days to `kikoo/archive/` on Cloudinary
 
 ---
 
 ## Scripts
 
 ```bash
-npm run dev       # Start with nodemon (hot reload)
-npm start         # Start for production
-npm run migrate   # Run pending SQL migrations
-npm run seed      # Seed exercise data (run once after migrate)
+npm run dev           # Start with nodemon (hot reload)
+npm start             # Start for production
+npm run migrate       # Apply pending SQL migrations
+npm run seed:all      # Seed everything (users + exercises + games + contests + resumes)
+npm run seed:users    # Seed test users only
+npm run seed:games    # Seed game data only
+npm run smoke         # Run end-to-end smoke test (requires server running)
 ```
 
 ---
 
 ## Milestones
 
-| Milestone | Status | Features |
+| Milestone | Status | Key Deliverables |
 |---|---|---|
-| **M1 — Core Platform** | ✅ Done | Auth (JWT + refresh), user profiles, XP/streak/badges, text exercises (9 types), energy system, Postman collection |
-| **M2 — Audio & AI** | ✅ Done | Direct Cloudinary upload, Gemini transcription, structured speaking feedback, in-process job queue, speaking evaluation, GDPR delete |
-| **M3 — Interview Prep** | ✅ Done | Resume upload (file + JSON), resume analysis & roast (AI), mock interview rooms, per-question AI scoring, scraped question evaluator, frontend implementation guide |
-| **M4 — Live Interview + Assignments** | ✅ Done | Personalized daily assignments (XP-based), Gemini Live config endpoint, AI question generation (cached), live interview report save, Cloudinary signature fix, exercise seed data |
+| **M1 — Foundation & English Learning** | ✅ Done | Auth (JWT + refresh), user + profile schema, XP/streak/badges, 9 exercise types, energy system, daily assignments |
+| **M2 — Audio Pipeline & AI Feedback** | ✅ Done | Cloudinary direct upload, Gemini transcription, structured speaking feedback, in-process job queue, speaking evaluation |
+| **M3 — Resume Tools & Interview** | ✅ Done | Resume upload (file + JSON), AI analyze + roast, ATS detection, mock interview rooms, per-question scoring, job listings |
+| **M4 — Mini-Games & Contests** | ✅ Done | 5 game types, contest flow (create/join/leaderboard/score/complete), live rank recalc, Pro prize distribution, certificate PDF generation |
+| **M5 — Admin, Security & Handover** | ✅ Done | Full admin API (18 endpoints), rate limiting, audio retention cron, GDPR delete, promo codes, job retry, CSV exports, OpenAPI spec, all seed files, smoke test |
+
+---
+
+## Frontend Guide
+
+See [`FRONTEND_IMPLEMENTATION_GUIDE.md`](./FRONTEND_IMPLEMENTATION_GUIDE.md) for complete frontend integration including code snippets for every flow, Cloudinary upload helpers, token refresh interceptor, polling helpers, and flow diagrams.

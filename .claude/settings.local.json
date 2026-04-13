@@ -29,7 +29,9 @@
       "Bash(curl:*)",
       "Bash(ls D:/Kikooai/backend/*.json D:/Kikooai/backend/*.md)",
       "Bash(grep -n \"CREATE TABLE jobs\" D:/Kikooai/backend/src/migrations/*.sql)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(ls D:/Kikooai/backend/*.md)",
+      "Bash(cross-env NODE_ENV=test:*)"
     ]
   }
 }

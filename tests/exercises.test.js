@@ -127,8 +127,8 @@ describe('Exercises', () => {
     );
 
     if (res.status === 200) {
-      assert.ok(typeof res.body.data.correct === 'boolean', 'Missing correct field');
-      assert.ok(typeof res.body.data.score   === 'number',  'Missing score field');
+      assert.ok(typeof res.body.data.is_correct === 'boolean', 'Missing is_correct field');
+      assert.ok(typeof res.body.data.score      === 'number',  'Missing score field');
     }
   });
 
