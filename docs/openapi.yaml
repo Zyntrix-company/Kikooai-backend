@@ -884,6 +884,44 @@ paths:
             application/json:
               example: { success: false, error: "Resume not found", code: "RESUME_NOT_FOUND" }
 
+  /resumes/{resume_id}/file:
+    get:
+      operationId: getResumeFileUrl
+      summary: Get a short-lived signed URL to view or download the resume file
+      description: >
+        Generates a 10-minute authenticated Cloudinary download URL for the
+        resume file (PDF/DOCX/TXT). Only works for file-based resumes —
+        returns 400 RESUME_NO_FILE for JSON-only resumes.
+        Fetch a fresh URL each time the user wants to view; do not cache.
+      tags: [resumes]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: resume_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Signed download URL valid for 600 seconds
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  url: "https://api.cloudinary.com/v1_1/your-cloud/raw/download?public_id=...&api_key=...&timestamp=...&signature=..."
+                  format: "pdf"
+                  expires_in_seconds: 600
+        '400':
+          description: Resume has no uploaded file (JSON-only resume)
+          content:
+            application/json:
+              example: { success: false, error: "Resume file not yet uploaded", code: "RESUME_NO_FILE" }
+        '404':
+          description: Resume not found
+          content:
+            application/json:
+              example: { success: false, error: "Resume not found", code: "RESUME_NOT_FOUND" }
+
 # ─────────────────────────────────────────────────────────────────────────────
 # INTERVIEW
 # ─────────────────────────────────────────────────────────────────────────────

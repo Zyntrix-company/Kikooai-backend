@@ -10,8 +10,10 @@ import { transcriptionJobHandler } from '../jobs/transcriptionJob.js';
 
 const router = Router();
 
+// Gemini-supported MIME types. WebM is a video container — Gemini accepts
+// video/webm but NOT audio/webm, so map webm to video/webm.
 const FORMAT_MIME = {
-  webm: 'audio/webm',
+  webm: 'video/webm',
   mp4:  'video/mp4',
   mp3:  'audio/mpeg',
   wav:  'audio/wav',
@@ -130,7 +132,7 @@ router.post('/audio/complete', auth, validate(completeSchema), async (req, res, 
       [cloudinary_public_id, cloudinary_url, resolvedDuration, resolvedFormat, upload_id]
     );
 
-    const mimeType = FORMAT_MIME[resolvedFormat] || 'audio/webm';
+    const mimeType = FORMAT_MIME[resolvedFormat] || 'video/webm';
 
     // Enqueue transcription job
     const jobId = await jobQueue.enqueue(

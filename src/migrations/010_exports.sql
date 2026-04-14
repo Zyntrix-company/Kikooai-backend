@@ -1,4 +1,4 @@
--- exports: tracks admin-triggered CSV/JSON data export jobs
+npm run seed:all-- exports: tracks admin-triggered CSV/JSON data export jobs
 CREATE TABLE IF NOT EXISTS exports (
   id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   requested_by  UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,

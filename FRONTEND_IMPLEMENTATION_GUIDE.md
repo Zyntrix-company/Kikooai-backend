@@ -333,6 +333,20 @@ const { resume } = await api('POST', '/resumes/upload-complete', {
 // resume: { id, title, file_format, cloudinary_url, created_at }
 ```
 
+### View / download the file
+
+After upload you can let the user preview or download the file. The backend generates a **10-minute signed Cloudinary URL** (works regardless of CDN access restrictions):
+
+```js
+const { url, format, expires_in_seconds } = await api(
+  'GET', `/resumes/${resumeId}/file`, null, accessToken
+);
+// Open the signed URL in a browser tab / WebView
+window.open(url, '_blank');
+```
+
+> **Note:** The URL expires in 600 seconds. Fetch a fresh one each time the user wants to view the file — do not cache it.
+
 ---
 
 ## 8. Resume as JSON
@@ -359,6 +373,8 @@ const { resume } = await api('POST', '/resumes/save-json', {
 const { resumes } = await api('GET', '/resumes', null, accessToken);  // newest 20
 await api('DELETE', `/resumes/${resumeId}`, null, accessToken);        // cascades to reports
 ```
+
+> File resumes also have the `/file` endpoint — see [Section 7](#7-resume-upload-file) for usage.
 
 ---
 
@@ -883,6 +899,7 @@ All errors follow this shape:
 | `AUDIO_NOT_FOUND` | 404 | Audio missing or wrong owner |
 | `JOB_NOT_FOUND` | 404 | Job missing or wrong owner |
 | `RESUME_NOT_FOUND` | 404 | Resume missing or wrong owner |
+| `RESUME_NO_FILE` | 400 | Resume exists but has no uploaded file (JSON-only resume) |
 | `REPORT_NOT_FOUND` | 404 | Resume report missing or wrong owner |
 | `ROOM_NOT_FOUND` | 404 | Interview room missing or wrong owner |
 | `ROOM_ALREADY_ACTIVE` | 400 | Room already recording or completed |
@@ -961,6 +978,7 @@ GET /audio/:audio_id/transcript
 [File upload] POST /resumes/upload-init
               → upload to Cloudinary
               → POST /resumes/upload-complete  → resume_id
+              → GET /resumes/:resume_id/file   → signed URL (view/download, 10 min TTL)
 [JSON upload] POST /resumes/save-json          → resume_id
         │
         ▼

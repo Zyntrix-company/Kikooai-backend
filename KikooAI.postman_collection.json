@@ -1191,7 +1191,7 @@
     },
     {
       "name": "Resumes",
-      "description": "Resume upload (file or JSON), AI analysis, roast, and management.\n\n**File upload flow:**\n`POST /resumes/upload-init` → upload directly to Cloudinary raw endpoint → `POST /resumes/upload-complete` → use `resume_id` in /analyze or /roast → poll `/resumes/reports/:report_id`\n\n**JSON flow:**\n`POST /resumes/save-json` → use `resume_id` directly in /analyze or /roast",
+      "description": "Resume upload (file or JSON), AI analysis, roast, and management.\n\n**File upload flow:**\n`POST /resumes/upload-init` → upload directly to Cloudinary raw endpoint → `POST /resumes/upload-complete` → (optional) `GET /resumes/:id/file` for a signed view URL → use `resume_id` in /analyze or /roast → poll `/resumes/reports/:report_id`\n\n**JSON flow:**\n`POST /resumes/save-json` → use `resume_id` directly in /analyze or /roast\n\n**File view:**\n`GET /resumes/:id/file` returns a 10-minute signed Cloudinary URL. Works for file-based resumes only; returns `RESUME_NO_FILE` for JSON resumes.",
       "item": [
         {
           "name": "1 — Upload Init",
@@ -1645,6 +1645,55 @@
               "code": 200,
               "_postman_previewlanguage": "json",
               "body": "{\n  \"success\": true,\n  \"data\": {\n    \"resumes\": [\n      {\n        \"id\": \"uuid\",\n        \"title\": \"My Software Engineer Resume\",\n        \"file_format\": null,\n        \"json_blob\": { \"name\": \"Jane Doe\" },\n        \"created_at\": \"2026-03-29T18:00:00.000Z\"\n      }\n    ]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Resume File URL",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/resumes/{{resumeId}}/file",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "resumes",
+                "{{resumeId}}",
+                "file"
+              ]
+            },
+            "description": "Returns a short-lived (10-minute) signed Cloudinary URL so the client can view or download the resume file.\n\nOnly valid for file-based resumes (PDF/DOCX/TXT). Returns 400 RESUME_NO_FILE for JSON-only resumes.\n\nDo **not** cache the URL — fetch a fresh one each time the user wants to view the file."
+          },
+          "response": [
+            {
+              "name": "200 OK — Signed URL",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"url\": \"https://api.cloudinary.com/v1_1/your-cloud/raw/download?public_id=kikoo%2Fresumes%2Fuser-id%2Ffile&api_key=986456461221934&timestamp=1774461359&signature=abc123\",\n    \"format\": \"pdf\",\n    \"expires_in_seconds\": 600\n  }\n}"
+            },
+            {
+              "name": "400 No file (JSON-only resume)",
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Resume file not yet uploaded\",\n  \"code\": \"RESUME_NO_FILE\"\n}"
+            },
+            {
+              "name": "404 Not found",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Resume not found\",\n  \"code\": \"RESUME_NOT_FOUND\"\n}"
             }
           ]
         },

@@ -167,6 +167,32 @@ router.get('/resumes', auth, async (req, res, next) => {
   }
 });
 
+// ─── GET /resumes/:resume_id/file ─────────────────────────────────────────────
+// Returns a short-lived signed URL so the client can view / download the file.
+
+router.get('/resumes/:resume_id/file', auth, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT cloudinary_public_id, file_format FROM resumes WHERE id = $1 AND user_id = $2',
+      [req.params.resume_id, req.user.id]
+    );
+    if (!rows[0]) return fail(res, 'Resume not found', 'RESUME_NOT_FOUND', 404);
+
+    const { cloudinary_public_id, file_format } = rows[0];
+    if (!cloudinary_public_id || cloudinary_public_id === 'pending') {
+      return fail(res, 'Resume file not yet uploaded', 'RESUME_NO_FILE', 400);
+    }
+
+    const url = cloudinaryService.getResumeFileUrl(
+      cloudinary_public_id,
+      file_format || 'pdf'
+    );
+    return success(res, { url, format: file_format, expires_in_seconds: 600 });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── DELETE /resumes/:resume_id ───────────────────────────────────────────────
 
 router.delete('/resumes/:resume_id', auth, async (req, res, next) => {

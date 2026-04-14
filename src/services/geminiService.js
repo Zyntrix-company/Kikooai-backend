@@ -28,6 +28,7 @@ export async function transcribeAudio(audioBuffer, mimeType) {
     const text = result.response.text().trim();
     return { text, confidence: 0.85 };
   } catch (err) {
+    console.error('[gemini] transcribeAudio error:', err?.message || err);
     const e  = new Error('AI transcription service failed');
     e.code   = 'AI_SERVICE_ERROR';
     e.status = 502;

@@ -195,12 +195,21 @@ export async function deleteUserAssets(userId) {
 
 /**
  * Download a Cloudinary raw asset (resume file) as a Buffer.
+ * Uses private_download_url so the download is authenticated even when the
+ * Cloudinary account restricts direct CDN delivery of raw assets.
  * @param {string} publicId
  * @returns {{ buffer: Buffer, format: string }}
  */
 export async function downloadRawAsBuffer(publicId) {
   const asset = await verifyRawAsset(publicId);
-  const res   = await fetch(asset.secureUrl);
+
+  // private_download_url produces an API-gateway URL signed with api_key + secret,
+  // so it works regardless of CDN access-control settings on the account.
+  const downloadUrl = cloudinary.utils.private_download_url(publicId, asset.format, {
+    resource_type: 'raw',
+  });
+
+  const res = await fetch(downloadUrl);
   if (!res.ok) {
     const e  = new Error(`Failed to download raw asset: ${res.statusText}`);
     e.code   = 'FILE_NOT_FOUND_ON_CLOUDINARY';
@@ -209,4 +218,19 @@ export async function downloadRawAsBuffer(publicId) {
   }
   const arrayBuf = await res.arrayBuffer();
   return { buffer: Buffer.from(arrayBuf), format: asset.format };
+}
+
+/**
+ * Generate a short-lived signed URL so a client can view or download a resume file.
+ * @param {string} publicId
+ * @param {string} format  e.g. 'pdf'
+ * @param {number} [ttlSeconds]  Default 600 (10 min)
+ * @returns {string}
+ */
+export function getResumeFileUrl(publicId, format, ttlSeconds = 600) {
+  const expiresAt = Math.floor(Date.now() / 1000) + ttlSeconds;
+  return cloudinary.utils.private_download_url(publicId, format, {
+    resource_type: 'raw',
+    expires_at:    expiresAt,
+  });
 }
