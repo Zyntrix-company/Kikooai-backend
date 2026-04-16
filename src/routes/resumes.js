@@ -6,6 +6,7 @@ import { validate } from '../middleware/validate.js';
 import { success, fail } from '../utils/response.js';
 import * as cloudinaryService from '../services/cloudinaryService.js';
 import * as resumeService from '../services/resumeService.js';
+import { buildResumeReportFailedResponse } from '../utils/resumeReportFailure.js';
 
 const router = Router();
 
@@ -127,13 +128,7 @@ router.get('/resumes/reports/:report_id', auth, async (req, res, next) => {
     const report = await resumeService.getReport(req.params.report_id, req.user.id);
 
     if (report.status === 'failed') {
-      return success(res, {
-        status:        'failed',
-        report:        null,
-        error:         'Analysis failed',
-        code:          'ANALYSIS_FAILED',
-        analysis_type: report.analysis_type,
-      });
+      return success(res, buildResumeReportFailedResponse(report));
     }
 
     if (report.status !== 'done') {

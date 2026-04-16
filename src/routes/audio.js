@@ -181,6 +181,7 @@ router.get('/jobs/:job_id/status', auth, async (req, res, next) => {
       status:        job.status,
       progress_pct:  job.progress_pct,
       error_message: job.error_message,
+      error_code:    job.error_code,
       updated_at:    job.updated_at,
     });
   } catch (err) {

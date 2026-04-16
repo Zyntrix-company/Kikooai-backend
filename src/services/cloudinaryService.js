@@ -210,14 +210,26 @@ export async function downloadRawAsBuffer(publicId) {
   });
 
   const res = await fetch(downloadUrl);
-  if (!res.ok) {
-    const e  = new Error(`Failed to download raw asset: ${res.statusText}`);
-    e.code   = 'FILE_NOT_FOUND_ON_CLOUDINARY';
-    e.status = 400;
-    throw e;
+  if (res.ok) {
+    const arrayBuf = await res.arrayBuffer();
+    return { buffer: Buffer.from(arrayBuf), format: asset.format };
   }
-  const arrayBuf = await res.arrayBuffer();
-  return { buffer: Buffer.from(arrayBuf), format: asset.format };
+
+  // Some accounts deliver raw bytes on secure_url even when the private URL path misbehaves.
+  if (asset.secureUrl) {
+    const fallback = await fetch(asset.secureUrl);
+    if (fallback.ok) {
+      const arrayBuf = await fallback.arrayBuffer();
+      return { buffer: Buffer.from(arrayBuf), format: asset.format };
+    }
+  }
+
+  const e = new Error(
+    `Failed to download raw asset (private URL HTTP ${res.status} ${res.statusText}; public_id=${publicId}; format=${asset.format})`
+  );
+  e.code   = 'CLOUDINARY_RAW_DOWNLOAD_FAILED';
+  e.status = 400;
+  throw e;
 }
 
 /**

@@ -144,9 +144,12 @@ export async function createReport(resumeId, userId, { jdText, coverLetter, anal
 
 export async function getReport(reportId, userId) {
   const { rows } = await pool.query(
-    `SELECT rr.*
+    `SELECT rr.*,
+            j.error_message AS job_error_message,
+            j.error_code    AS job_error_code
      FROM resume_reports rr
      JOIN resumes r ON r.id = rr.resume_id
+     JOIN jobs j ON j.id = rr.job_id
      WHERE rr.id = $1 AND r.user_id = $2`,
     [reportId, userId]
   );

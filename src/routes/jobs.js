@@ -10,7 +10,7 @@ const router = Router();
 router.get('/jobs', auth, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, type, status, progress_pct, error_message, created_at, updated_at
+      `SELECT id, type, status, progress_pct, error_message, error_code, created_at, updated_at
        FROM jobs
        WHERE user_id = $1
        ORDER BY created_at DESC

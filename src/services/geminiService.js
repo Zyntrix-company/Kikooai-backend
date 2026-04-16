@@ -19,17 +19,22 @@ export async function transcribeAudio(audioBuffer, mimeType) {
   const model      = getModel();
   const base64Data = audioBuffer.toString('base64');
 
+  // Normalise: Gemini supports video/webm but not audio/webm
+  const normalisedMime = mimeType === 'audio/webm' ? 'video/webm' : mimeType;
+
   try {
     const result = await model.generateContent([
-      { inlineData: { mimeType, data: base64Data } },
+      { inlineData: { mimeType: normalisedMime, data: base64Data } },
       { text: 'Transcribe this audio exactly as spoken. Return only the transcribed text with no additional commentary, labels, or formatting.' },
     ]);
 
     const text = result.response.text().trim();
     return { text, confidence: 0.85 };
   } catch (err) {
-    console.error('[gemini] transcribeAudio error:', err?.message || err);
-    const e  = new Error('AI transcription service failed');
+    // Log and surface the real Gemini error so it appears in job.error_message
+    const detail = err?.message || String(err);
+    console.error('[gemini] transcribeAudio error:', detail);
+    const e  = new Error(`AI transcription failed: ${detail}`);
     e.code   = 'AI_SERVICE_ERROR';
     e.status = 502;
     throw e;
@@ -130,7 +135,9 @@ export async function extractResumeText(fileBuffer, mimeType) {
     ]);
     return result.response.text().trim();
   } catch (err) {
-    const e  = new Error('AI resume text extraction failed');
+    const detail = err?.message || String(err);
+    console.error('[gemini] extractResumeText error:', detail);
+    const e  = new Error(`AI resume text extraction failed: ${detail}`);
     e.code   = 'AI_SERVICE_ERROR';
     e.status = 502;
     throw e;
@@ -192,7 +199,9 @@ export async function analyzeResume(resumeText, jdText, coverLetter, analysisTyp
     const result = await model.generateContent(prompt);
     rawText = result.response.text().trim();
   } catch (err) {
-    const e  = new Error('AI resume analysis service failed');
+    const detail = err?.message || String(err);
+    console.error('[gemini] analyzeResume generateContent error:', detail);
+    const e  = new Error(`AI resume analysis failed: ${detail}`);
     e.code   = 'AI_SERVICE_ERROR';
     e.status = 502;
     throw e;
@@ -203,13 +212,22 @@ export async function analyzeResume(resumeText, jdText, coverLetter, analysisTyp
   try {
     return JSON.parse(cleaned);
   } catch {
+    const head = cleaned.slice(0, 120);
+    const tail = cleaned.slice(-120);
+    console.error('[gemini] analyzeResume JSON.parse failed; preview head/tail:', head, '|', tail);
+    let retryCleaned = '';
     try {
-      const retry  = await model.generateContent('Return ONLY raw JSON no markdown:\n' + prompt);
-      const raw2   = retry.response.text().trim()
+      const retry = await model.generateContent('Return ONLY raw JSON no markdown:\n' + prompt);
+      retryCleaned = retry.response.text().trim()
         .replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-      return JSON.parse(raw2);
-    } catch {
-      const e  = new Error('AI returned malformed resume analysis response');
+      return JSON.parse(retryCleaned);
+    } catch (err2) {
+      const head2 = retryCleaned.slice(0, 120);
+      const tail2 = retryCleaned.slice(-120);
+      console.error('[gemini] analyzeResume retry JSON.parse failed; preview:', head2, '|', tail2);
+      const e  = new Error(
+        `AI returned malformed resume analysis response${err2?.message ? `: ${err2.message}` : ''}`
+      );
       e.code   = 'AI_PARSE_ERROR';
       e.status = 502;
       throw e;

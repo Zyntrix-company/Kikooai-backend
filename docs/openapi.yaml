@@ -830,8 +830,12 @@ paths:
                     data:
                       status: "failed"
                       report: null
-                      error: "Analysis failed"
+                      error: "Analysis failed: the AI service returned an error."
                       code: "ANALYSIS_FAILED"
+                      failure_code: "AI_SERVICE_ERROR"
+                      failure_detail: "AI resume analysis failed: [GoogleGenerativeAI Error]: …"
+                      job_id: "job-uuid"
+                      analysis_type: "analyze"
         '202':
           description: Analysis still in progress
           content:
