@@ -1024,7 +1024,7 @@
                 "status"
               ]
             },
-            "description": "**Step 4 — poll every 2–3 seconds until `status` is `done` or `failed`.**\n\nProgress stages:\n- `10%` — Downloading audio from Cloudinary\n- `30%` — Audio downloaded\n- `60%` — Transcription complete\n- `80%` — Feedback analysis complete\n- `100%` — Done, transcript saved\n\nJobs are user-scoped — returns 404 for jobs that belong to a different user."
+            "description": "**Step 4 — poll every 2–3 seconds until `status` is `done` or `failed`.**\n\n`data.type` identifies the job: `transcription`, `resume_analyze`, `resume_roast`, `interview_score`.\n\nProgress stages:\n- `10%` — Downloading audio from Cloudinary\n- `30%` — Audio downloaded\n- `60%` — Transcription complete\n- `80%` — Feedback analysis complete\n- `100%` — Done, transcript saved\n\nJobs are user-scoped — returns 404 for jobs that belong to a different user."
           },
           "response": [
             {
@@ -1032,21 +1032,21 @@
               "status": "OK",
               "code": 200,
               "_postman_previewlanguage": "json",
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"id\":            \"f7e8d9c0-1234-5678-abcd-ef0123456789\",\n    \"status\":        \"processing\",\n    \"progress_pct\":  60,\n    \"error_message\": null,\n    \"updated_at\":    \"2026-03-25T08:01:30.000Z\"\n  }\n}"
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"id\":            \"f7e8d9c0-1234-5678-abcd-ef0123456789\",\n    \"type\":          \"transcription\",\n    \"status\":        \"processing\",\n    \"progress_pct\":  60,\n    \"error_message\": null,\n    \"error_code\":    null,\n    \"updated_at\":    \"2026-03-25T08:01:30.000Z\"\n  }\n}"
             },
             {
               "name": "200 Done",
               "status": "OK",
               "code": 200,
               "_postman_previewlanguage": "json",
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"id\":            \"f7e8d9c0-1234-5678-abcd-ef0123456789\",\n    \"status\":        \"done\",\n    \"progress_pct\":  100,\n    \"error_message\": null,\n    \"updated_at\":    \"2026-03-25T08:01:45.000Z\"\n  }\n}"
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"id\":            \"f7e8d9c0-1234-5678-abcd-ef0123456789\",\n    \"type\":          \"transcription\",\n    \"status\":        \"done\",\n    \"progress_pct\":  100,\n    \"error_message\": null,\n    \"error_code\":    null,\n    \"updated_at\":    \"2026-03-25T08:01:45.000Z\"\n  }\n}"
             },
             {
               "name": "200 Failed",
               "status": "OK",
               "code": 200,
               "_postman_previewlanguage": "json",
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"id\":            \"f7e8d9c0-1234-5678-abcd-ef0123456789\",\n    \"status\":        \"failed\",\n    \"progress_pct\":  0,\n    \"error_message\": \"AI transcription service failed\",\n    \"updated_at\":    \"2026-03-25T08:01:50.000Z\"\n  }\n}"
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"id\":            \"f7e8d9c0-1234-5678-abcd-ef0123456789\",\n    \"type\":          \"transcription\",\n    \"status\":        \"failed\",\n    \"progress_pct\":  0,\n    \"error_message\": \"AI transcription failed: [GoogleGenerativeAI Error]: 429 Too Many Requests\",\n    \"error_code\":    \"AI_SERVICE_ERROR\",\n    \"updated_at\":    \"2026-03-25T08:01:50.000Z\"\n  }\n}"
             },
             {
               "name": "401 Unauthorized",
@@ -1470,7 +1470,7 @@
                 "analyze"
               ]
             },
-            "description": "Trigger an ATS-style AI analysis of the resume against a job description.\n\n`jd_text` must be at least 50 characters.\n`cover_letter` is optional.\n\nAuto-saves `reportId` and `jobId`.\n\nPoll `/resumes/reports/:report_id` for results."
+            "description": "Trigger an ATS-style AI analysis of the resume against a job description.\n\n`jd_text` must be at least 50 characters.\n`cover_letter` is optional.\n\nReturns **202** with `{ success, data: { report_id, job_id, message } }` — parse **`data`**, not the request body.\n\nAuto-saves `reportId` and `jobId`.\n\nPoll `/resumes/reports/:report_id` (or `GET /jobs/:job_id/status`) for progress."
           },
           "response": [
             {
@@ -1582,7 +1582,7 @@
                 "{{reportId}}"
               ]
             },
-            "description": "Poll for analysis results.\n\n- **202** — still processing\n- **200** — done, full report available"
+            "description": "Poll for analysis results.\n\n- **202** — still processing (`data.status` pending/processing)\n- **200** + `data.status === \"done\"` — full report in `data.report`\n- **200** + `data.status === \"failed\"` — business failure: `code` **ANALYSIS_FAILED**, plus `failure_code` (e.g. **GEMINI_QUOTA_EXCEEDED**), `failure_detail`, `job_id`"
           },
           "response": [
             {
@@ -1605,6 +1605,13 @@
               "code": 200,
               "_postman_previewlanguage": "json",
               "body": "{\n  \"success\": true,\n  \"data\": {\n    \"status\": \"done\",\n    \"score\": 72,\n    \"analysis_type\": \"roast\",\n    \"report\": {\n      \"strengths\": [\"Relevant skills listed\"],\n      \"roast_lines\": [\n        \"Your experience section reads like a job description — tell me what YOU did.\",\n        \"Three years of experience, zero numbers. Were your achievements classified?\"\n      ],\n      \"score\": 72,\n      \"summary\": \"You've got potential, but this resume is playing it way too safe.\"\n    }\n  }\n}"
+            },
+            {
+              "name": "200 Failed — Gemini quota",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"status\": \"failed\",\n    \"report\": null,\n    \"error\": \"Analysis failed: AI quota or rate limit was exceeded. Try again later or contact support.\",\n    \"code\": \"ANALYSIS_FAILED\",\n    \"failure_code\": \"GEMINI_QUOTA_EXCEEDED\",\n    \"failure_detail\": \"AI resume analysis failed: [GoogleGenerativeAI Error]: 429 Too Many Requests\",\n    \"job_id\": \"0eb64c7f-26c9-4944-a699-d7aaa37ea8e8\",\n    \"analysis_type\": \"analyze\"\n  }\n}"
             },
             {
               "name": "404 Report not found",
@@ -2373,7 +2380,7 @@
     },
     {
       "name": "Jobs",
-      "description": "Background job management. All AI tasks (transcription, resume analysis, interview scoring) run as background jobs.\n\nUse `GET /jobs/:job_id/status` to poll a specific job and `GET /jobs` to list all recent jobs.",
+      "description": "Background job management. All AI tasks (transcription, resume analysis, interview scoring) run as background jobs.\n\nUse `GET /jobs/:job_id/status` to poll a specific job (response includes **`type`**: `transcription` | `resume_analyze` | `resume_roast` | `interview_score`, plus `error_code` when failed). Use `GET /jobs` to list all recent jobs.",
       "item": [
         {
           "name": "List Jobs",
@@ -2396,7 +2403,7 @@
                 "jobs"
               ]
             },
-            "description": "Returns the 20 most recent jobs for the authenticated user (newest first).\n\nIncludes all job types: `transcription`, `resume_analyze`, `interview_score`."
+            "description": "Returns the 20 most recent jobs for the authenticated user (newest first).\n\nIncludes job types: `transcription`, `resume_analyze`, `resume_roast`, `interview_score`."
           },
           "response": [
             {
@@ -2404,7 +2411,7 @@
               "status": "OK",
               "code": 200,
               "_postman_previewlanguage": "json",
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"jobs\": [\n      {\n        \"id\": \"uuid\",\n        \"type\": \"resume_analyze\",\n        \"status\": \"done\",\n        \"progress_pct\": 100,\n        \"error_message\": null,\n        \"created_at\": \"2026-03-29T18:00:00.000Z\",\n        \"updated_at\": \"2026-03-29T18:00:30.000Z\"\n      },\n      {\n        \"id\": \"uuid\",\n        \"type\": \"transcription\",\n        \"status\": \"done\",\n        \"progress_pct\": 100,\n        \"error_message\": null,\n        \"created_at\": \"2026-03-29T17:55:00.000Z\",\n        \"updated_at\": \"2026-03-29T17:55:20.000Z\"\n      }\n    ]\n  }\n}"
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"jobs\": [\n      {\n        \"id\": \"uuid\",\n        \"type\": \"resume_analyze\",\n        \"status\": \"done\",\n        \"progress_pct\": 100,\n        \"error_message\": null,\n        \"error_code\": null,\n        \"created_at\": \"2026-03-29T18:00:00.000Z\",\n        \"updated_at\": \"2026-03-29T18:00:30.000Z\"\n      },\n      {\n        \"id\": \"uuid\",\n        \"type\": \"resume_roast\",\n        \"status\": \"done\",\n        \"progress_pct\": 100,\n        \"error_message\": null,\n        \"error_code\": null,\n        \"created_at\": \"2026-03-29T17:58:00.000Z\",\n        \"updated_at\": \"2026-03-29T17:58:25.000Z\"\n      },\n      {\n        \"id\": \"uuid\",\n        \"type\": \"transcription\",\n        \"status\": \"done\",\n        \"progress_pct\": 100,\n        \"error_message\": null,\n        \"error_code\": null,\n        \"created_at\": \"2026-03-29T17:55:00.000Z\",\n        \"updated_at\": \"2026-03-29T17:55:20.000Z\"\n      }\n    ]\n  }\n}"
             }
           ]
         }

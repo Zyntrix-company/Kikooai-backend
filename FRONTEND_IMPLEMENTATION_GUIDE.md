@@ -55,6 +55,7 @@ export async function api(method, path, body, token) {
 
   const json = await res.json().catch(() => null);
   if (!res.ok) throw Object.assign(new Error(json?.error || 'Request failed'), { code: json?.code, status: res.status });
+  // 2xx includes 202 (e.g. POST /resumes/analyze) — always read nested `data`, not the request body
   return json.data;
 }
 ```
@@ -240,7 +241,7 @@ The audio **never passes through the backend** — the client uploads directly t
 Step 1: POST /audio/upload-init    → get Cloudinary signature
 Step 2: POST to Cloudinary         → direct browser/mobile upload
 Step 3: POST /audio/complete       → confirm upload, enqueue transcription
-Step 4: Poll GET /jobs/:id         → wait for transcription
+Step 4: Poll GET /jobs/:id/status  → wait for transcription
 Step 5: GET /audio/:id/transcript  → fetch result
 ```
 
@@ -397,9 +398,11 @@ const { report_id, job_id } = await api('POST', '/resumes/roast', {
 }, accessToken);
 ```
 
-Both return **202** — the analysis runs as a background job.
+Both return **202** with `{ report_id, job_id, message }` inside the standard `{ success, data }` envelope — the analysis runs as a background job. Ensure your HTTP client treats **202 as success** (e.g. Flutter/Dio: do not only accept 200).
 
 ### Poll the report
+
+Prefer polling **`GET /resumes/reports/:report_id`** (or optionally `GET /jobs/:job_id/status` using the returned `job_id`). HTTP **200** with `success: true` still means “check `data.status`” — **`done`**, **`failed`**, or in-progress fields live on `data`, not the status code alone.
 
 ```js
 async function pollReport(reportId, token, maxWait = 120_000) {
@@ -407,12 +410,21 @@ async function pollReport(reportId, token, maxWait = 120_000) {
   while (Date.now() < deadline) {
     const data = await api('GET', `/resumes/reports/${reportId}`, null, token);
     if (data.status === 'done')   return data;   // data.report has full JSON
-    if (data.status === 'failed') throw new Error('Analysis failed');
+    if (data.status === 'failed') {
+      const err = new Error(data.error || 'Analysis failed');
+      err.code = data.code;                     // ANALYSIS_FAILED
+      err.failure_code = data.failure_code;     // e.g. GEMINI_QUOTA_EXCEEDED, AI_SERVICE_ERROR
+      err.failure_detail = data.failure_detail;
+      err.job_id = data.job_id;
+      throw err;
+    }
     await new Promise(r => setTimeout(r, 3000));
   }
   throw new Error('Timed out');
 }
 ```
+
+**When `status === 'failed'`:** `code` is **`ANALYSIS_FAILED`**. Use **`failure_code`** / **`failure_detail`** for UI (e.g. **`GEMINI_QUOTA_EXCEEDED`** → show quota / try-later; **`AI_PARSE_ERROR`** → model output issue).
 
 **Report shape (on `status === 'done'`):**
 ```js
@@ -446,7 +458,7 @@ POST /interview/rooms/create          → room_id
 POST /interview/rooms/:id/record/start
 [Record audio + upload via audio pipeline]
 POST /interview/rooms/:id/record/stop  { audio_id }  → job_id
-Poll GET /jobs/:job_id
+Poll GET /jobs/:job_id/status
 GET  /interview/rooms/:id/result
 ```
 
@@ -840,12 +852,13 @@ All async AI tasks (transcription, resume analysis, interview scoring, export) u
 ### Polling endpoint
 
 ```
-GET /api/v1/jobs/:job_id
+GET /api/v1/jobs/:job_id/status
 Authorization: Bearer <accessToken>
 ```
 
 ```js
-// data: { id, status, progress_pct, error_message, updated_at }
+// data: { id, type, status, progress_pct, error_message, error_code, updated_at }
+// type: transcription | resume_analyze | resume_roast | interview_score
 // status: pending → processing → done | failed
 ```
 
@@ -855,7 +868,7 @@ Authorization: Bearer <accessToken>
 async function pollJob(jobId, token, { interval = 2000, timeout = 120_000, onProgress } = {}) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
-    const data = await api('GET', `/jobs/${jobId}`, null, token);
+    const data = await api('GET', `/jobs/${jobId}/status`, null, token);
     if (onProgress) onProgress(data.progress_pct);
     if (data.status === 'done')   return data;
     if (data.status === 'failed') throw new Error(data.error_message || 'Job failed');
@@ -874,7 +887,7 @@ await pollJob(jobId, token, {
 
 ```js
 const { jobs } = await api('GET', '/jobs', null, accessToken);
-// jobs: [{ id, type, status, progress_pct, error_message, created_at }]
+// jobs: [{ id, type, status, progress_pct, error_message, error_code, created_at, updated_at }]
 ```
 
 ---
@@ -920,6 +933,8 @@ All errors follow this shape:
 | `AI_PARSE_ERROR` | 502 | Gemini returned malformed JSON |
 | `RATE_LIMITED` | 429 | Too many requests (see rate limits) |
 
+**Resume report failure (still HTTP 200, `success: true`):** `GET /resumes/reports/:id` can return `data.status === 'failed'` with `data.code === 'ANALYSIS_FAILED'`, plus `failure_code` (e.g. `GEMINI_QUOTA_EXCEEDED`, `AI_SERVICE_ERROR`, `AI_PARSE_ERROR`) and `failure_detail` — handle this in your poll loop, not only `success: false`.
+
 ### Rate limits to handle on the frontend
 
 | Endpoint group | Limit | Window |
@@ -945,8 +960,8 @@ Every endpoint uses this consistent structure:
 ```
 
 - **201** — Resource created (signup, contest join)
-- **202** — Accepted, processing async (resume analyze, audio complete, export trigger)
-- **200** — Everything else success
+- **202** — Accepted, processing async (resume analyze, audio complete, export trigger); also **`GET /resumes/reports/:id`** while analysis is running returns **202** with `data.status` pending/processing
+- **200** — Typical success; for report polling, **200** can mean **done**, **failed**, or (on some routes) intermediate state — always inspect `data`
 
 ---
 
@@ -964,7 +979,7 @@ POST to cloudinary.uploadUrl (browser → Cloudinary, no backend)
 POST /audio/complete  { upload_id, cloudinary_public_id, ... }
         │ { audio_id, job_id }  ← 202
         ▼
-Poll GET /jobs/:job_id  every 2s
+Poll GET /jobs/:job_id/status  every 2s
         │ status = done
         ▼
 GET /audio/:audio_id/transcript
@@ -985,12 +1000,11 @@ GET /audio/:audio_id/transcript
 POST /resumes/analyze  (or /roast)  { resume_id, jd_text }
         │ { report_id, job_id }  ← 202
         ▼
-Poll GET /jobs/:job_id
-        │ status = done
+Poll GET /resumes/reports/:report_id until `data.status` is `done` or `failed`
+   (or poll GET /jobs/:job_id/status — response includes `type`: resume_analyze | resume_roast)
+        │ `done` → `data.report` has full score + feedback JSON
         ▼
-GET /resumes/reports/:report_id
-        │
-        ▼ Display score + feedback
+Display score + feedback
 ```
 
 ### Contest Flow
@@ -1031,7 +1045,7 @@ POST /interview/rooms/:id/record/start
   → upload to Cloudinary
   → POST /audio/complete  → audio_id
 POST /interview/rooms/:id/record/stop  { audio_id }  → job_id
-Poll GET /jobs/:job_id
+Poll GET /jobs/:job_id/status
 GET  /interview/rooms/:id/result
 ```
 

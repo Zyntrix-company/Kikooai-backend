@@ -544,9 +544,11 @@ paths:
                 success: true
                 data:
                   id: "job-uuid"
+                  type: "transcription"
                   status: "processing"
                   progress_pct: 60
                   error_message: null
+                  error_code: null
                   updated_at: "2026-04-12T14:00:00Z"
         '404':
           description: Job not found
@@ -834,6 +836,19 @@ paths:
                       code: "ANALYSIS_FAILED"
                       failure_code: "AI_SERVICE_ERROR"
                       failure_detail: "AI resume analysis failed: [GoogleGenerativeAI Error]: …"
+                      job_id: "job-uuid"
+                      analysis_type: "analyze"
+                failed_quota:
+                  summary: AI quota / rate limit (HTTP 200)
+                  value:
+                    success: true
+                    data:
+                      status: "failed"
+                      report: null
+                      error: "Analysis failed: AI quota or rate limit was exceeded. Try again later or contact support."
+                      code: "ANALYSIS_FAILED"
+                      failure_code: "GEMINI_QUOTA_EXCEEDED"
+                      failure_detail: "AI resume analysis failed: [GoogleGenerativeAI Error]: 429 Too Many Requests"
                       job_id: "job-uuid"
                       analysis_type: "analyze"
         '202':

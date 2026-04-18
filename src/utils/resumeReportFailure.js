@@ -19,6 +19,12 @@ export function truncateFailureDetail(msg, maxLen = DEFAULT_MAX_DETAIL) {
  */
 export function inferFailureCodeFromMessage(msg) {
   if (!msg) return 'UNKNOWN_ERROR';
+  const m = msg.toLowerCase();
+  if (m.includes('429') || m.includes('too many requests')) return 'GEMINI_QUOTA_EXCEEDED';
+  if (m.includes('resource exhausted') || m.includes('quota') || m.includes('rate limit')) {
+    return 'GEMINI_QUOTA_EXCEEDED';
+  }
+  if (m.includes('limit:0') || m.includes('exceeded your current quota')) return 'GEMINI_QUOTA_EXCEEDED';
   if (msg.includes('AI returned malformed')) return 'AI_PARSE_ERROR';
   if (msg.includes('Failed to download raw asset')) return 'CLOUDINARY_RAW_DOWNLOAD_FAILED';
   if (msg.includes('AI resume analysis failed:') || msg.includes('AI transcription failed:')) {
@@ -38,6 +44,8 @@ function humanSummary(failureCode) {
       return 'Analysis failed: the model returned data that could not be read.';
     case 'AI_SERVICE_ERROR':
       return 'Analysis failed: the AI service returned an error.';
+    case 'GEMINI_QUOTA_EXCEEDED':
+      return 'Analysis failed: AI quota or rate limit was exceeded. Try again later or contact support.';
     case 'CLOUDINARY_RAW_DOWNLOAD_FAILED':
       return 'Could not download the resume file from storage.';
     case 'FILE_NOT_FOUND_ON_CLOUDINARY':
@@ -51,10 +59,13 @@ function humanSummary(failureCode) {
  * @param {{ job_id: string, analysis_type: string, job_error_message?: string|null, job_error_code?: string|null }} row
  */
 export function buildResumeReportFailedResponse(row) {
-  const rawMsg     = row.job_error_message || '';
+  const rawMsg     = (row.last_error && String(row.last_error).trim()) || row.job_error_message || '';
   const storedCode = row.job_error_code && String(row.job_error_code).trim();
-  const failure_code =
-    storedCode && storedCode.length ? storedCode : inferFailureCodeFromMessage(rawMsg);
+  const inferred   = inferFailureCodeFromMessage(rawMsg);
+  let failure_code = storedCode && storedCode.length ? storedCode : inferred;
+  if (failure_code === 'AI_SERVICE_ERROR' && inferred === 'GEMINI_QUOTA_EXCEEDED') {
+    failure_code = 'GEMINI_QUOTA_EXCEEDED';
+  }
   const failure_detail = truncateFailureDetail(rawMsg);
 
   return {

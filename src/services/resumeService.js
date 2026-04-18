@@ -113,12 +113,14 @@ export async function createReport(resumeId, userId, { jdText, coverLetter, anal
 
   const { text: resumeText } = await getResumeText(resumeId, userId);
 
+  const jobType = analysisType === 'roast' ? 'resume_roast' : 'resume_analyze';
+
   // Create the job row first so we have its id
   const { rows: jobRows } = await pool.query(
     `INSERT INTO jobs (type, status, user_id, payload_ref)
-     VALUES ('resume_analyze', 'pending', $1, '{}')
+     VALUES ($1, 'pending', $2, '{}')
      RETURNING id`,
-    [userId]
+    [jobType, userId]
   );
   const jobId = jobRows[0].id;
 
@@ -133,7 +135,7 @@ export async function createReport(resumeId, userId, { jdText, coverLetter, anal
 
   // Enqueue using the existing job row
   await jobQueue.enqueue(
-    'resume_analyze',
+    jobType,
     { reportId, resumeId, resumeText, jdText, coverLetter: coverLetter || null, analysisType },
     resumeJobHandler,
     { userId, jobId }

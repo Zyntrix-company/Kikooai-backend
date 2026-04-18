@@ -21,9 +21,20 @@ describe('resumeReportFailure', () => {
   it('inferFailureCodeFromMessage maps legacy messages', () => {
     assert.equal(inferFailureCodeFromMessage('AI returned malformed resume analysis response'), 'AI_PARSE_ERROR');
     assert.equal(inferFailureCodeFromMessage('Failed to download raw asset: Not Found'), 'CLOUDINARY_RAW_DOWNLOAD_FAILED');
-    assert.equal(inferFailureCodeFromMessage('AI resume analysis failed: quota'), 'AI_SERVICE_ERROR');
+    assert.equal(inferFailureCodeFromMessage('AI resume analysis failed: quota'), 'GEMINI_QUOTA_EXCEEDED');
+    assert.equal(inferFailureCodeFromMessage('AI resume analysis failed: HTTP 429'), 'GEMINI_QUOTA_EXCEEDED');
     assert.equal(inferFailureCodeFromMessage('AI resume analysis service failed'), 'AI_SERVICE_ERROR');
     assert.equal(inferFailureCodeFromMessage(''), 'UNKNOWN_ERROR');
+  });
+
+  it('buildResumeReportFailedResponse upgrades AI_SERVICE_ERROR to GEMINI when message is quota', () => {
+    const payload = buildResumeReportFailedResponse({
+      job_id:             '33333333-3333-3333-3333-333333333333',
+      analysis_type:      'analyze',
+      job_error_message:  'AI resume analysis failed: [GoogleGenerativeAI Error]: 429 Too Many Requests',
+      job_error_code:     'AI_SERVICE_ERROR',
+    });
+    assert.equal(payload.failure_code, 'GEMINI_QUOTA_EXCEEDED');
   });
 
   it('buildResumeReportFailedResponse prefers stored job error_code', () => {

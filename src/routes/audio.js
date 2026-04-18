@@ -178,6 +178,7 @@ router.get('/jobs/:job_id/status', auth, async (req, res, next) => {
 
     return success(res, {
       id:            job.id,
+      type:          job.type,
       status:        job.status,
       progress_pct:  job.progress_pct,
       error_message: job.error_message,

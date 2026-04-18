@@ -19,17 +19,22 @@ export async function resumeJobHandler(payload, onProgress) {
 
     await pool.query(
       `UPDATE resume_reports
-       SET report_json = $1, score = $2, status = 'done'
+       SET report_json = $1, score = $2, status = 'done', last_error = NULL
        WHERE id = $3`,
       [JSON.stringify(result), result.score ?? null, reportId]
     );
 
     await onProgress(100);
   } catch (err) {
-    await pool.query(
-      "UPDATE resume_reports SET status = 'failed' WHERE id = $1",
-      [reportId]
-    ).catch(() => {});
+    const detail = err?.message || String(err);
+    await pool
+      .query(
+        `UPDATE resume_reports
+         SET status = 'failed', last_error = $2
+         WHERE id = $1`,
+        [reportId, detail]
+      )
+      .catch(() => {});
 
     throw err;
   }

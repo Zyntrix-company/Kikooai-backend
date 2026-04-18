@@ -47,7 +47,8 @@ class JobQueue {
    */
   async getStatus(jobId) {
     const { rows } = await pool.query(
-      'SELECT id, status, progress_pct, error_message, error_code, updated_at, user_id FROM jobs WHERE id = $1',
+      `SELECT id, type, status, progress_pct, error_message, error_code, updated_at, user_id
+       FROM jobs WHERE id = $1`,
       [jobId]
     );
     return rows[0] || null;
@@ -69,16 +70,31 @@ class JobQueue {
     );
   }
 
+  /** Update status + progress without touching error fields (avoids wiping last failure during retries). */
+  async updateJobProgressOnly(jobId, status, progressPct) {
+    await pool.query(
+      `UPDATE jobs SET status = $1, progress_pct = $2, updated_at = now() WHERE id = $3`,
+      [status, progressPct, jobId]
+    );
+  }
+
+  _errorFieldsFromErr(err) {
+    const errorMessage = err?.message || 'Unknown error';
+    const errorCode =
+      err?.code && typeof err.code === 'string' && err.code.length ? err.code : null;
+    return { errorMessage, errorCode };
+  }
+
   /** Internal: process one pending job per tick. */
   async _tick() {
     const job = this.queue.find((j) => j.status === 'pending');
     if (!job) return;
 
     job.status = 'processing';
-    await this.updateJobStatus(job.id, 'processing', 0, null, null);
+    await this.updateJobProgressOnly(job.id, 'processing', 0);
 
     const onProgress = async (pct) => {
-      await this.updateJobStatus(job.id, 'processing', pct, null, null);
+      await this.updateJobProgressOnly(job.id, 'processing', pct);
     };
 
     try {
@@ -92,19 +108,18 @@ class JobQueue {
       job.attempts += 1;
       await pool.query('UPDATE jobs SET attempts = $1 WHERE id = $2', [job.attempts, job.id]);
 
+      const { errorMessage, errorCode } = this._errorFieldsFromErr(err);
+
       if (job.attempts < job.maxAttempts) {
-        // Exponential backoff before re-queuing
+        // Exponential backoff before re-queuing — keep last error visible for GET /jobs and report JOINs
         const delayMs = Math.pow(2, job.attempts) * 1000;
         job.status = 'pending_retry';
-        await this.updateJobStatus(job.id, 'pending', 0, null, null);
+        await this.updateJobStatus(job.id, 'pending', 0, errorMessage, errorCode);
         setTimeout(() => {
           job.status = 'pending';
         }, delayMs);
       } else {
         job.status = 'failed';
-        const errorMessage = err?.message || 'Unknown error';
-        const errorCode =
-          err?.code && typeof err.code === 'string' && err.code.length ? err.code : null;
         await this.updateJobStatus(job.id, 'failed', 0, errorMessage, errorCode);
         this._removeFromQueue(job.id);
       }
