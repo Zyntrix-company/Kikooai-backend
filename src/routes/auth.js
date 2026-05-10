@@ -26,12 +26,35 @@ const refreshSchema = Joi.object({
   refreshToken: Joi.string().required(),
 });
 
+const googleAuthSchema = Joi.object({
+  idToken: Joi.string().required(),
+  role: Joi.string().valid('student', 'job_seeker', 'professional').optional(),
+  username: Joi.string().alphanum().min(3).max(30).optional(),
+});
+
 const updateProfileSchema = Joi.object({
   interests: Joi.array().items(Joi.string()).optional(),
   education: Joi.object().optional(),
   motive: Joi.string().optional(),
   targets: Joi.object().optional(),
   resume_ref: Joi.string().uuid().allow(null).optional(),
+});
+
+// POST /auth/google
+router.post('/auth/google', validate(googleAuthSchema), async (req, res, next) => {
+  try {
+    const { user, isNewUser } = await authService.googleAuthUser(req.body);
+    const tokens = await authService.generateTokens(user);
+    return success(res, { user, ...tokens, isNewUser }, isNewUser ? 201 : 200);
+  } catch (err) {
+    if (['INVALID_GOOGLE_TOKEN', 'MISSING_SIGNUP_FIELDS', 'ACCOUNT_BANNED'].includes(err.code)) {
+      return fail(res, err.message, err.code, err.status);
+    }
+    if (err.code === '23505') {
+      return fail(res, 'Username already in use', 'DUPLICATE_USERNAME', 409);
+    }
+    next(err);
+  }
 });
 
 // POST /auth/signup

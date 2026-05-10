@@ -24,6 +24,7 @@ app.use(express.urlencoded({ extended: true }));
 // ─── Rate limiting on sensitive endpoints ─────────────────────────────────────
 app.use('/api/v1/auth/signup',         authLimiter);
 app.use('/api/v1/auth/login',          authLimiter);
+app.use('/api/v1/auth/google',         authLimiter);
 app.use('/api/v1/audio/upload-init',   uploadLimiter);
 app.use('/api/v1/resumes/upload-init', uploadLimiter);
 app.use('/api/v1/exercises',           scoringLimiter);
@@ -34,6 +35,7 @@ const REQUIRED_ENV = {
   core:       ['DATABASE_URL', 'JWT_SECRET', 'JWT_EXPIRY', 'REFRESH_TOKEN_EXPIRY'],
   cloudinary: ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'],
   gemini:     ['GEMINI_API_KEY'],
+  google:     ['GOOGLE_CLIENT_ID'],
 };
 
 // Health check — checks DB connectivity + env var completeness

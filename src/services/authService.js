@@ -1,8 +1,11 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
+import { OAuth2Client } from 'google-auth-library';
 import pool from '../db/pool.js';
 import { sanitizeUser } from '../utils/sanitize.js';
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 function parseDuration(str) {
   const unit = str.slice(-1);
@@ -39,7 +42,7 @@ export async function loginUser({ email, password }) {
     [email]
   );
 
-  if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+  if (!user || !user.password_hash || !(await bcrypt.compare(password, user.password_hash))) {
     const err = new Error('Invalid credentials');
     err.code = 'INVALID_CREDENTIALS';
     err.status = 401;
@@ -124,6 +127,87 @@ export async function getUserById(id) {
     [id]
   );
   return sanitizeUser(row);
+}
+
+export async function googleAuthUser({ idToken, role, username }) {
+  // Verify the ID token with Google
+  let payload;
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    payload = ticket.getPayload();
+  } catch {
+    const err = new Error('Invalid Google token');
+    err.code = 'INVALID_GOOGLE_TOKEN';
+    err.status = 401;
+    throw err;
+  }
+
+  const { sub: googleId, email, name: fullname } = payload;
+
+  // 1. Existing Google-linked account
+  const { rows: [byGoogleId] } = await pool.query(
+    'SELECT * FROM users WHERE google_id = $1',
+    [googleId]
+  );
+  if (byGoogleId) {
+    if (byGoogleId.is_banned) {
+      const err = new Error('Account suspended');
+      err.code = 'ACCOUNT_BANNED';
+      err.status = 403;
+      throw err;
+    }
+    await pool.query('UPDATE users SET last_active = NOW() WHERE id = $1', [byGoogleId.id]);
+    return { user: sanitizeUser(byGoogleId), isNewUser: false };
+  }
+
+  // 2. Email already registered via password — link the Google account
+  const { rows: [byEmail] } = await pool.query(
+    'SELECT * FROM users WHERE email = $1',
+    [email]
+  );
+  if (byEmail) {
+    if (byEmail.is_banned) {
+      const err = new Error('Account suspended');
+      err.code = 'ACCOUNT_BANNED';
+      err.status = 403;
+      throw err;
+    }
+    const { rows: [linked] } = await pool.query(
+      `UPDATE users SET google_id = $1, last_active = NOW() WHERE id = $2 RETURNING *`,
+      [googleId, byEmail.id]
+    );
+    return { user: sanitizeUser(linked), isNewUser: false };
+  }
+
+  // 3. Brand-new user — role and username are required
+  if (!role || !username) {
+    const err = new Error('role and username are required for new Google sign-ups');
+    err.code = 'MISSING_SIGNUP_FIELDS';
+    err.status = 422;
+    throw err;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: [newUser] } = await client.query(
+      `INSERT INTO users (email, username, fullname, role, google_id, auth_provider)
+       VALUES ($1, $2, $3, $4, $5, 'google')
+       RETURNING *`,
+      [email, username, fullname, role, googleId]
+    );
+    await client.query('INSERT INTO profiles (user_id) VALUES ($1)', [newUser.id]);
+    await client.query('COMMIT');
+    return { user: sanitizeUser(newUser), isNewUser: true };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export async function updateUserProfile(id, fields) {

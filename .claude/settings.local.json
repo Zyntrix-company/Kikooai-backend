@@ -31,7 +31,10 @@
       "Bash(grep -n \"CREATE TABLE jobs\" D:/Kikooai/backend/src/migrations/*.sql)",
       "Bash(npm run:*)",
       "Bash(ls D:/Kikooai/backend/*.md)",
-      "Bash(cross-env NODE_ENV=test:*)"
+      "Bash(cross-env NODE_ENV=test:*)",
+      "Bash(Get-ChildItem -Recurse -Depth 2)",
+      "Bash(Select-Object FullName, PSIsContainer)",
+      "PowerShell(Get-ChildItem -Path \"d:\\\\Kikooai\\\\backend\" -Recurse | Where-Object {$_.PSIsContainer} | Select-Object -ExpandProperty FullName | head -50)"
     ]
   }
 }

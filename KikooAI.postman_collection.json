@@ -247,6 +247,104 @@
           ]
         },
         {
+          "name": "Google Sign-In",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success) {",
+                  "  pm.collectionVariables.set('accessToken', json.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+                  "  const label = json.data.isNewUser ? 'Google signup successful' : 'Google login successful';",
+                  "  pm.test(label, () => pm.response.to.have.status(json.data.isNewUser ? 201 : 200));",
+                  "  pm.test('No password_hash exposed', () => {",
+                  "    pm.expect(JSON.stringify(json)).to.not.include('password_hash');",
+                  "  });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idToken\": \"<Google ID Token from mobile SDK>\",\n  \"role\": \"student\",\n  \"username\": \"kikoouser\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/google",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "google"
+              ]
+            },
+            "description": "Sign in or sign up via Google OAuth. The mobile app obtains an `idToken` from Google Sign-In SDK and sends it here.\n\n**`role` and `username`** are required only for brand-new users. For returning users they are ignored.\n\nAuto-saves `accessToken` and `refreshToken` to collection variables.\n\n**`isNewUser`** in the response tells the app whether to show an onboarding screen."
+          },
+          "response": [
+            {
+              "name": "200 OK — Existing user",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"user\": {\n      \"id\": \"966a5a94-bc81-4eb2-abce-fddeca749a95\",\n      \"email\": \"user@google.com\",\n      \"username\": \"kikoouser\",\n      \"fullname\": \"Kikoo User\",\n      \"role\": \"student\",\n      \"is_banned\": false,\n      \"is_admin\": false,\n      \"auth_provider\": \"google\"\n    },\n    \"accessToken\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\n    \"refreshToken\": \"687cf039-ca26-4e54-b91c-df98de3815f9\",\n    \"isNewUser\": false\n  }\n}"
+            },
+            {
+              "name": "201 Created — New user",
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"user\": {\n      \"id\": \"966a5a94-bc81-4eb2-abce-fddeca749a95\",\n      \"email\": \"newuser@google.com\",\n      \"username\": \"kikoouser\",\n      \"fullname\": \"New User\",\n      \"role\": \"student\",\n      \"is_banned\": false,\n      \"is_admin\": false,\n      \"auth_provider\": \"google\"\n    },\n    \"accessToken\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\n    \"refreshToken\": \"687cf039-ca26-4e54-b91c-df98de3815f9\",\n    \"isNewUser\": true\n  }\n}"
+            },
+            {
+              "name": "401 Invalid Google token",
+              "status": "Unauthorized",
+              "code": 401,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Invalid Google token\",\n  \"code\": \"INVALID_GOOGLE_TOKEN\"\n}"
+            },
+            {
+              "name": "422 Missing signup fields",
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"role and username are required for new Google sign-ups\",\n  \"code\": \"MISSING_SIGNUP_FIELDS\"\n}"
+            },
+            {
+              "name": "409 Username taken",
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Username already in use\",\n  \"code\": \"DUPLICATE_USERNAME\"\n}"
+            },
+            {
+              "name": "403 Account banned",
+              "status": "Forbidden",
+              "code": 403,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Account suspended\",\n  \"code\": \"ACCOUNT_BANNED\"\n}"
+            }
+          ]
+        },
+        {
           "name": "Refresh Token",
           "event": [
             {
