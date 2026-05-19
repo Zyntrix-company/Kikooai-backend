@@ -54,6 +54,11 @@
       "key": "roomId",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "gameId",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -757,14 +762,14 @@
               "status": "OK",
               "code": 200,
               "_postman_previewlanguage": "json",
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"is_correct\": true,\n    \"score\": 100,\n    \"xp_awarded\": 10,\n    \"explanation\": \"'Goes' is correct because the subject is third-person singular.\",\n    \"hints\": [\"Think about subject-verb agreement.\"]\n  }\n}"
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"is_correct\": true,\n    \"score\": 100,\n    \"xp_awarded\": 10,\n    \"explanation\": \"'Goes' is correct because the subject is third-person singular.\",\n    \"hints\": [\"Think about subject-verb agreement.\"],\n    \"new_total_xp\": 1250,\n    \"streak_count\": 5\n  }\n}"
             },
             {
               "name": "200 Wrong",
               "status": "OK",
               "code": 200,
               "_postman_previewlanguage": "json",
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"is_correct\": false,\n    \"score\": 0,\n    \"xp_awarded\": 1,\n    \"explanation\": \"The correct answer is 'goes'.\",\n    \"hints\": [\"Think about subject-verb agreement.\"]\n  }\n}"
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"is_correct\": false,\n    \"score\": 0,\n    \"xp_awarded\": 1,\n    \"explanation\": \"The correct answer is 'goes'.\",\n    \"hints\": [\"Think about subject-verb agreement.\"],\n    \"new_total_xp\": 1241,\n    \"streak_count\": 5\n  }\n}"
             },
             {
               "name": "402 Energy Depleted",
@@ -2630,6 +2635,153 @@
               "code": 401,
               "_postman_previewlanguage": "json",
               "body": "{\n  \"error\": \"Unauthorized\",\n  \"code\": \"INVALID_TOKEN\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Games",
+      "item": [
+        {
+          "name": "Get Game Seed",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/games/contextooo/seed",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "games", "contextooo", "seed"]
+            },
+            "description": "Get a random active game seed for the given type. Valid types: `conexo`, `speed_reading`, `contextooo`, `word_blitz`, `guess_the_word`.\n\n`answer_key` is stripped before returning — use `POST /games/contextooo/rank` to check guesses."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"game\": {\n      \"id\": \"{{gameId}}\",\n      \"type\": \"contextooo\",\n      \"difficulty\": \"medium\",\n      \"config\": {},\n      \"seed_json\": {\n        \"hint\": \"You drink it hot or cold\"\n      }\n    }\n  }\n}"
+            },
+            {
+              "name": "404 No Games Available",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"No games available for this type\",\n  \"code\": \"NOT_FOUND\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Contextooo — Rank Guess",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"seedId\": \"{{gameId}}\",\n  \"guess\": \"coffee\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/games/contextooo/rank",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "games", "contextooo", "rank"]
+            },
+            "description": "Rank a word guess against the secret word using Gemini semantic embeddings (text-embedding-004).\n\n- `seedId`: the game `id` from `GET /games/contextooo/seed`\n- `guess`: the word to rank\n- `rank 1` = exact semantic match to the secret word\n- `rank` ranges from 1 (closest) to 1000 (furthest)\n- `similarity` is the raw cosine similarity score (0–1)"
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"rank\": 150,\n    \"similarity\": 0.8512\n  }\n}"
+            },
+            {
+              "name": "200 Correct Guess (rank 1)",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"rank\": 1,\n    \"similarity\": 1.0\n  }\n}"
+            },
+            {
+              "name": "404 Game Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Contextooo game not found\",\n  \"code\": \"NOT_FOUND\"\n}"
+            },
+            {
+              "name": "400 Validation Error",
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"\\\"seedId\\\" must be a valid GUID\",\n  \"code\": \"VALIDATION_ERROR\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Submit Game Score",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"game_id\": \"{{gameId}}\",\n  \"score\": 850,\n  \"combo\": 3,\n  \"hearts_left\": 2,\n  \"time_taken_seconds\": 120,\n  \"metadata\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/games/contextooo/score",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "games", "contextooo", "score"]
+            },
+            "description": "Submit a final score for any game type. Returns the player's leaderboard rank among all submissions for that game.\n\n- `game_id`: UUID of the game (from seed response)\n- `score`: integer score\n- `combo`, `hearts_left`, `time_taken_seconds`: optional metadata"
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"saved\": true,\n    \"rank\": 4\n  }\n}"
+            },
+            {
+              "name": "400 Validation Error",
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"\\\"game_id\\\" must be a valid GUID\",\n  \"code\": \"VALIDATION_ERROR\"\n}"
             }
           ]
         }
