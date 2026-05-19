@@ -2514,6 +2514,126 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Learning Path",
+      "description": "30-day learning path progress sync. Progress resets automatically every 30 days. All endpoints require a valid JWT.",
+      "item": [
+        {
+          "name": "Get Learning Path Status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.success) {",
+                  "  pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "  pm.test(\"Has current_day\", () => pm.expect(j.data.current_day).to.be.a(\"number\"));",
+                  "  pm.test(\"Has days_remaining\", () => pm.expect(j.data.days_remaining).to.be.a(\"number\"));",
+                  "  pm.test(\"Has completed_tasks array\", () => pm.expect(j.data.completed_tasks).to.be.an(\"array\"));",
+                  "  pm.test(\"Has is_locked\", () => pm.expect(j.data.is_locked).to.be.a(\"boolean\"));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/learning-path/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "learning-path", "status"]
+            },
+            "description": "Returns the authenticated user's 30-day learning path status.\n\n- Auto-creates a new cycle on first call.\n- Resets cycle (and clears completed tasks) if 30 days have elapsed since `cycle_start`.\n- `current_day` is 1-indexed (day 1 = cycle start day).\n- `days_remaining` = 30 − current_day.\n- `completed_tasks` lists all task UUIDs completed in the current cycle."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"current_day\": 5,\n    \"days_remaining\": 25,\n    \"completed_tasks\": [\n      \"11111111-1111-1111-1111-111111111111\",\n      \"22222222-2222-2222-2222-222222222222\"\n    ],\n    \"is_locked\": false\n  }\n}"
+            },
+            {
+              "name": "401 Unauthorized",
+              "status": "Unauthorized",
+              "code": 401,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"error\": \"Unauthorized\",\n  \"code\": \"INVALID_TOKEN\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Complete Task",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.success) {",
+                  "  pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "  pm.test(\"Has task_id\", () => pm.expect(j.data.task_id).to.be.a(\"string\"));",
+                  "  pm.test(\"Has day\", () => pm.expect(j.data.day).to.be.a(\"number\"));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"task_id\": \"11111111-1111-1111-1111-111111111111\",\n  \"day\": 5\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/learning-path/complete-task",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "learning-path", "complete-task"]
+            },
+            "description": "Marks a task as completed for the authenticated user.\n\n- **Idempotent** — re-submitting the same `task_id` is safe and returns 200 with no duplicate DB row.\n- `task_id`: UUID of the frontend task.\n- `day`: integer 1–30 (the day in the cycle this task belongs to)."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"task_id\": \"11111111-1111-1111-1111-111111111111\",\n    \"day\": 5\n  }\n}"
+            },
+            {
+              "name": "400 Validation Error",
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error\": \"\\\"task_id\\\" must be a valid GUID\",\n  \"code\": \"VALIDATION_ERROR\"\n}"
+            },
+            {
+              "name": "401 Unauthorized",
+              "status": "Unauthorized",
+              "code": 401,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"error\": \"Unauthorized\",\n  \"code\": \"INVALID_TOKEN\"\n}"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

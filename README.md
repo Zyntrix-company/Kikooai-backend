@@ -13,7 +13,7 @@ Production-ready REST API for **KikooAI** — an AI-powered English learning, in
 | Runtime | Node.js 20+ (ES Modules) |
 | Framework | Express.js v5 |
 | Database | PostgreSQL via [Neon](https://neon.tech) (serverless) |
-| Auth | JWT (15m access token) + UUID refresh tokens (bcrypt-hashed) |
+| Auth | JWT (15m access token) + UUID refresh tokens (bcrypt-hashed) + Google OAuth (ID token verification) |
 | Validation | Joi |
 | File/Audio storage | Cloudinary v2 (client uploads directly — no proxy) |
 | AI | Google Gemini (`@google/generative-ai`, model: `gemini-2.0-flash`) |
@@ -53,7 +53,10 @@ src/
 │   ├── 008_contests.sql      # contests + contest_participants + admin_actions
 │   ├── 009_admin.sql         # promo_codes + promo_code_redemptions + users.flags
 │   ├── 010_exports.sql       # exports + audio archived status
-│   └── 011_certificates.sql  # contest_participants.certificate_url
+│   ├── 011_certificates.sql  # contest_participants.certificate_url
+│   ├── 012_jobs_error_code.sql          # adds error_code to jobs
+│   ├── 013_resume_reports_last_error.sql # adds last_error to resume_reports
+│   └── 014_google_oauth.sql  # google_id + auth_provider on users; password_hash nullable
 ├── routes/
 │   ├── auth.js               # /auth/* and /users/me (+ DELETE /users/me GDPR)
 │   ├── exercises.js          # /exercises/*
@@ -176,6 +179,7 @@ See [`docs/ENV.md`](./docs/ENV.md) for the full table. Quick reference:
 | `CLOUDINARY_API_SECRET` | ✅ | Cloudinary API secret |
 | `GEMINI_API_KEY` | ✅ | Google AI Studio API key |
 | `GEMINI_MODEL` | — | Gemini model (default: `gemini-2.0-flash`) |
+| `GOOGLE_CLIENT_ID` | ✅ | Web OAuth client ID from Google Cloud Console (for mobile ID token verification) |
 | `APP_BASE_URL` | — | Public backend URL — used for contest share links |
 | `AUDIO_RETENTION_DAYS` | — | Days before audio archival (default: `90`) |
 | `PORT` | — | Server port (default: `3000`) |
@@ -212,13 +216,20 @@ No auth. Returns DB status, env var completeness, job queue depth, and mounted r
 |---|---|---|---|
 | POST | `/api/v1/auth/signup` | — | Register. Returns user + token pair. |
 | POST | `/api/v1/auth/login` | — | Login. Returns user + token pair. |
+| POST | `/api/v1/auth/google` | — | Google Sign-In — verify mobile ID token, create or find user. |
 | POST | `/api/v1/auth/refresh` | — | Rotate refresh token. Body: `{ refreshToken }` |
 | POST | `/api/v1/auth/logout` | 🔒 | Invalidate all refresh tokens. |
 
 Signup body: `{ email, password (min 8), username (alphanum 3–30), fullname, role (student|job_seeker|professional) }`
 Login body: `{ email, password }`
+Google body: `{ idToken, role? (required for new users), username? (required for new users) }`
 
 **201/200** → `{ user, accessToken, refreshToken }`
+Google response also includes `isNewUser: boolean` — use it to decide whether to show onboarding.
+
+Account linking: if the Google email matches an existing password-registered account, the Google ID is automatically linked — no duplicate account is created.
+
+> See [GOOGLE_OAUTH_SETUP.md](./GOOGLE_OAUTH_SETUP.md) for the full Google Cloud Console + Flutter + React Native setup guide.
 
 ---
 
@@ -425,10 +436,11 @@ See [`docs/JOBS.md`](./docs/JOBS.md) for internals, monitoring, and the Bull+Red
 
 ---
 
-## Database Schema (11 migrations)
+## Database Schema (14 migrations)
 
 ```
-users               id · email · password_hash · username · fullname · role
+users               id · email · password_hash (nullable) · username · fullname · role
+                    google_id · auth_provider (email|google)
                     is_banned · is_flagged · is_admin · flags(jsonb) · created_at · last_active
 
 profiles            user_id · interests[] · education · motive · targets · resume_ref
@@ -482,7 +494,7 @@ exports             id · requested_by · export_type · file_url · status · e
 
 | Limiter | Endpoints | Window | Max |
 |---|---|---|---|
-| `authLimiter` | `/auth/signup`, `/auth/login` | 15 min | 10 req |
+| `authLimiter` | `/auth/signup`, `/auth/login`, `/auth/google` | 15 min | 10 req |
 | `uploadLimiter` | `/audio/upload-init`, `/resumes/upload-init` | 15 min | 20 req |
 | `scoringLimiter` | `/exercises/*`, `/games/*` | 1 min | 30 req |
 
@@ -493,6 +505,9 @@ exports             id · requested_by · export_type · file_url · status · e
 | Code | HTTP | Meaning |
 |---|---|---|
 | `INVALID_CREDENTIALS` | 401 | Wrong email or password |
+| `INVALID_GOOGLE_TOKEN` | 401 | Google ID token failed verification |
+| `MISSING_SIGNUP_FIELDS` | 422 | New Google user missing `role` or `username` |
+| `DUPLICATE_USERNAME` | 409 | Username already taken (Google signup) |
 | `INVALID_TOKEN` | 401 | Missing or expired JWT |
 | `INVALID_REFRESH_TOKEN` | 401 | Bad or expired refresh token |
 | `ACCOUNT_BANNED` | 403 | User account is suspended |
@@ -573,6 +588,7 @@ npm run smoke         # Run end-to-end smoke test (requires server running)
 | **M3 — Resume Tools & Interview** | ✅ Done | Resume upload (file + JSON), AI analyze + roast, ATS detection, mock interview rooms, per-question scoring, job listings |
 | **M4 — Mini-Games & Contests** | ✅ Done | 5 game types, contest flow (create/join/leaderboard/score/complete), live rank recalc, Pro prize distribution, certificate PDF generation |
 | **M5 — Admin, Security & Handover** | ✅ Done | Full admin API (18 endpoints), rate limiting, audio retention cron, GDPR delete, promo codes, job retry, CSV exports, OpenAPI spec, all seed files, smoke test |
+| **M6 — Google OAuth (Mobile)** | ✅ Done | Google Sign-In ID token verification, new user creation, account linking for existing email users, `auth_provider` tracking, Postman collection updated, full Flutter + React Native setup guide |
 
 ---
 
