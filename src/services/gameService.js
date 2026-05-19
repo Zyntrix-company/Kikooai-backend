@@ -1,4 +1,5 @@
 import pool from '../db/pool.js';
+import { computeWordSimilarity } from './geminiService.js';
 
 export async function getGameSeed(type) {
   const { rows } = await pool.query(
@@ -23,4 +24,27 @@ export async function submitScore(userId, gameId, scoreData) {
   );
 
   return { saved: true, rank: parseInt(rows[0].rank, 10) };
+}
+
+export async function rankContextoooGuess(seedId, guess) {
+  const { rows: [game] } = await pool.query(
+    "SELECT seed_json FROM games WHERE id = $1 AND type = 'contextooo' AND is_active = true",
+    [seedId]
+  );
+
+  if (!game) {
+    const err = new Error('Contextooo game not found');
+    err.status = 404;
+    err.code = 'NOT_FOUND';
+    throw err;
+  }
+
+  const secretWord = game.seed_json.answer_key;
+  if (!secretWord) {
+    const err = new Error('Game seed is missing answer_key');
+    err.status = 500;
+    throw err;
+  }
+
+  return computeWordSimilarity(secretWord, guess);
 }

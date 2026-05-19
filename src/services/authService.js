@@ -120,7 +120,9 @@ export async function getUserById(id) {
             u.is_admin, u.created_at, u.last_active,
             p.interests, p.education, p.motive, p.targets, p.resume_ref,
             p.subscription_status, p.pro_expires_at, p.streak, p.xp,
-            p.daily_energy_count, p.energy_reset_date, p.badges, p.last_streak_update
+            CASE WHEN p.energy_reset_date < CURRENT_DATE THEN 0 ELSE p.daily_energy_count END AS daily_energy_count,
+            CASE WHEN p.energy_reset_date < CURRENT_DATE THEN CURRENT_DATE ELSE p.energy_reset_date END AS energy_reset_date,
+            p.badges, p.last_streak_update
      FROM users u
      LEFT JOIN profiles p ON p.user_id = u.id
      WHERE u.id = $1`,

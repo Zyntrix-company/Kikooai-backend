@@ -116,6 +116,30 @@ export async function analyzeTranscript(transcriptText, promptText, contextType)
   }
 }
 
+// ─── Semantic Similarity (Contextooo) ────────────────────────────────────────
+
+function cosineSimilarity(a, b) {
+  let dot = 0, magA = 0, magB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot  += a[i] * b[i];
+    magA += a[i] * a[i];
+    magB += b[i] * b[i];
+  }
+  return dot / (Math.sqrt(magA) * Math.sqrt(magB));
+}
+
+export async function computeWordSimilarity(wordA, wordB) {
+  const embModel = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+  const [resA, resB] = await Promise.all([
+    embModel.embedContent(wordA.toLowerCase()),
+    embModel.embedContent(wordB.toLowerCase()),
+  ]);
+  const similarity = cosineSimilarity(resA.embedding.values, resB.embedding.values);
+  // Map similarity [0, 1] → rank [1, 1000]. Rank 1 = secret word itself.
+  const rank = similarity >= 0.999 ? 1 : Math.max(2, Math.round((1 - similarity) * 999) + 1);
+  return { similarity: Math.round(similarity * 10000) / 10000, rank };
+}
+
 // ─── Resume Analysis ──────────────────────────────────────────────────────────
 
 /**

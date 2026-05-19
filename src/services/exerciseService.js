@@ -55,22 +55,23 @@ export async function evaluateAnswer(seedId, userAnswer) {
   return { is_correct, score, xp_awarded, explanation, hints };
 }
 
+export async function resetEnergyIfStale(userId) {
+  const today = new Date().toISOString().slice(0, 10);
+  const { rowCount } = await pool.query(
+    `UPDATE profiles SET daily_energy_count = 0, energy_reset_date = CURRENT_DATE
+     WHERE user_id = $1 AND energy_reset_date < $2::date`,
+    [userId, today]
+  );
+  return rowCount > 0;
+}
+
 export async function checkAndResetEnergy(userId) {
+  await resetEnergyIfStale(userId);
+
   const { rows: [profile] } = await pool.query(
-    'SELECT daily_energy_count, energy_reset_date FROM profiles WHERE user_id = $1',
+    'SELECT daily_energy_count FROM profiles WHERE user_id = $1',
     [userId]
   );
-
-  const today = new Date().toISOString().slice(0, 10);
-  const resetDate = String(profile.energy_reset_date).slice(0, 10);
-
-  if (resetDate < today) {
-    await pool.query(
-      'UPDATE profiles SET daily_energy_count = 0, energy_reset_date = CURRENT_DATE WHERE user_id = $1',
-      [userId]
-    );
-    return; // fresh day — not depleted
-  }
 
   if (profile.daily_energy_count >= MAX_DAILY_ENERGY) {
     const tomorrow = new Date();
@@ -144,7 +145,16 @@ export async function submitExercise(userId, seedId, userAnswer) {
 
   await checkStreakUpdate(userId);
 
-  return evaluation;
+  const { rows: [updated] } = await pool.query(
+    'SELECT xp, streak FROM profiles WHERE user_id = $1',
+    [userId]
+  );
+
+  return {
+    ...evaluation,
+    new_total_xp: updated.xp,
+    streak_count: updated.streak,
+  };
 }
 
 export async function evaluateSpeakingExercise(userId, audioId, promptId) {

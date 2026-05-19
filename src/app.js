@@ -15,6 +15,7 @@ import contestsRouter from './routes/contests.js';
 import adminRouter from './routes/admin.js';
 import learningPathRouter from './routes/learningPath.js';
 import { jobQueue } from './jobs/JobQueue.js';
+import { startEnergyResetJob } from './jobs/energyResetJob.js';
 
 const app = express();
 
@@ -95,6 +96,9 @@ app.use('/api/v1', gamesRouter);
 app.use('/api/v1', contestsRouter);
 app.use('/api/v1', adminRouter);
 app.use('/api/v1', learningPathRouter);
+
+// Background jobs
+startEnergyResetJob();
 
 // 404 handler
 app.use((req, res) => {

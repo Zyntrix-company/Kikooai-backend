@@ -9,6 +9,11 @@ const router = Router();
 
 const ALLOWED_TYPES = ['conexo', 'speed_reading', 'contextooo', 'word_blitz', 'guess_the_word'];
 
+const contextoooRankSchema = Joi.object({
+  seedId: Joi.string().uuid().required(),
+  guess:  Joi.string().trim().min(1).max(100).required(),
+});
+
 const scoreSchema = Joi.object({
   game_id: Joi.string().uuid().required(),
   score: Joi.number().integer().required(),
@@ -16,6 +21,17 @@ const scoreSchema = Joi.object({
   hearts_left: Joi.number().integer().optional(),
   time_taken_seconds: Joi.number().integer().optional(),
   metadata: Joi.object().optional(),
+});
+
+// POST /games/contextooo/rank
+router.post('/games/contextooo/rank', auth, validate(contextoooRankSchema), async (req, res, next) => {
+  try {
+    const { seedId, guess } = req.body;
+    const result = await gameService.rankContextoooGuess(seedId, guess);
+    return success(res, result);
+  } catch (err) {
+    next(err);
+  }
 });
 
 // GET /games/:type/seed

@@ -1,4 +1,5 @@
 import pool from '../db/pool.js';
+import { resetEnergyIfStale } from './exerciseService.js';
 
 // XP thresholds → difficulty + CEFR label
 function levelFromXp(xp) {
@@ -28,7 +29,8 @@ const DAILY_PLAN = [
  *  - Count today's exercise_submissions to show progress.
  */
 export async function getDailyAssignment(userId) {
-  // 1. Fetch user level
+  // 1. Fetch user level (reset energy first so daily_energy_used is accurate)
+  await resetEnergyIfStale(userId);
   const { rows: [profile] } = await pool.query(
     'SELECT xp, daily_energy_count FROM profiles WHERE user_id = $1',
     [userId]
