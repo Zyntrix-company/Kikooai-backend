@@ -38,7 +38,11 @@
       "Bash(Get-ChildItem -Path d:\\\\Kikooai\\\\backend -Force)",
       "Bash(Select-Object Name, PSIsContainer)",
       "Bash(Format-Table -AutoSize)",
-      "Bash(ls -la d:\\\\\\\\Kikooai\\\\\\\\backend)"
+      "Bash(ls -la d:\\\\\\\\Kikooai\\\\\\\\backend)",
+      "Bash(Get-ChildItem \"D:\\\\Kikooai\\\\backend\" -MaxDepth 1 -Filter \"README*\")",
+      "Bash(Select-Object Name)",
+      "Bash(Get-ChildItem \"D:\\\\Kikooai\\\\backend\\\\src\\\\routes\")",
+      "Bash(Test-Path *)"
     ]
   }
 }

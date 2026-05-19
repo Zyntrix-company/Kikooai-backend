@@ -16,7 +16,7 @@ Production-ready REST API for **KikooAI** — an AI-powered English learning, in
 | Auth | JWT (15m access token) + UUID refresh tokens (bcrypt-hashed) + Google OAuth (ID token verification) |
 | Validation | Joi |
 | File/Audio storage | Cloudinary v2 (client uploads directly — no proxy) |
-| AI | Google Gemini (`@google/generative-ai`, model: `gemini-2.0-flash`) |
+| AI | Google Gemini 2.0 Flash (generation) + `text-embedding-004` (semantic similarity) |
 | Background jobs | In-process `JobQueue` (setInterval — see `docs/JOBS.md` for Bull+Redis upgrade path) |
 | PDF generation | pdfkit (contest certificates) |
 | Rate limiting | express-rate-limit |
@@ -35,7 +35,8 @@ src/
 │   ├── transcriptionJob.js   # Audio transcription handler (Cloudinary → Gemini → DB)
 │   ├── resumeJob.js          # Resume analysis/roast handler (Gemini → DB)
 │   ├── interviewJob.js       # Interview scoring handler (audio → transcribe → per-Q feedback)
-│   └── retentionJob.js       # Audio retention cron (archive files older than 90 days)
+│   ├── retentionJob.js       # Audio retention cron (archive files older than 90 days)
+│   └── energyResetJob.js     # Daily midnight UTC bulk reset of daily_energy_count
 ├── middleware/
 │   ├── auth.js               # JWT Bearer verification → req.user
 │   ├── adminGuard.js         # is_admin check (runs after auth)
@@ -65,7 +66,7 @@ src/
 │   ├── interview.js          # /interview/*
 │   ├── jobs.js               # /jobs (list)
 │   ├── assignments.js        # /assignments/daily
-│   ├── games.js              # /games/:type/seed and /games/:type/score
+│   ├── games.js              # /games/:type/seed, /games/:type/score, /games/contextooo/rank
 │   ├── contests.js           # /contests/*
 │   └── admin.js              # /admin/* (admin-only) + /promo-codes/redeem (auth)
 ├── services/
@@ -76,7 +77,7 @@ src/
 │   ├── resumeService.js      # Resume CRUD + report creation + text extraction
 │   ├── interviewService.js   # Room lifecycle + config + question cache + report save
 │   ├── assignmentService.js  # Personalized daily assignment builder (XP-based)
-│   ├── gameService.js        # Game seed fetch + score submission
+│   ├── gameService.js        # Game seed fetch + score submission + Contextooo semantic ranking
 │   ├── contestService.js     # Contest CRUD, join, leaderboard, rank recalc, prize distribution
 │   ├── adminService.js       # User management, badges, Pro, promo codes, logs, exports, job retry
 │   └── certificateService.js # PDF certificate generator (pdfkit)
@@ -250,7 +251,7 @@ All routes 🔒. Rate limited: 30 req/min.
 | Method | Endpoint | Description |
 |---|---|---|
 | GET | `/api/v1/exercises/:type/seed?difficulty=` | Random seed. `answer_key` stripped. |
-| POST | `/api/v1/exercises/:type/submit` | Submit answer. Body: `{ seed_id, user_answer }`. Returns `{ is_correct, score, xp_awarded, explanation }`. **402** on energy depleted. |
+| POST | `/api/v1/exercises/:type/submit` | Submit answer. Body: `{ seed_id, user_answer }`. Returns `{ is_correct, score, xp_awarded, explanation, new_total_xp, streak_count }`. **402** on energy depleted. |
 | GET | `/api/v1/exercises/speaking/prompt` | Speaking prompt matched to user CEFR level. |
 | POST | `/api/v1/exercises/speaking/evaluate` | Evaluate audio speaking. Body: `{ audio_id, prompt_id }`. |
 
@@ -341,9 +342,21 @@ All routes 🔒. Rate limited: 30 req/min.
 | Method | Endpoint | Description |
 |---|---|---|
 | GET | `/api/v1/games/:type/seed` | Random seed for game type. `answer_key` stripped. Returns `{ game: { id, type, difficulty, config, seed_json } }` |
-| POST | `/api/v1/games/:type/score` | Submit score. Body: `{ game_id, score, combo?, hearts_left?, time_taken_seconds?, metadata? }`. Returns `{ saved, rank }` |
+| POST | `/api/v1/games/contextooo/rank` | Rank a word guess against the secret word using semantic similarity. Body: `{ seedId, guess }`. Returns `{ rank, similarity }` |
+| POST | `/api/v1/games/:type/score` | Submit final score. Body: `{ game_id, score, combo?, hearts_left?, time_taken_seconds?, metadata? }`. Returns `{ saved, rank }` |
 
 **Game types:** `conexo` · `speed_reading` · `contextooo` · `word_blitz` · `guess_the_word`
+
+**Contextooo rank endpoint:**
+- Uses Gemini `text-embedding-004` to compute cosine similarity between the guess and the secret word
+- `rank 1` = the secret word itself; scale is 1 (closest) → 1000 (furthest)
+- Call this on every guess during gameplay; call `/score` once at the end to record the final result
+
+```
+GET /games/contextooo/seed   →  { game: { id: "uuid", ... } }  ← save this id as seedId
+POST /games/contextooo/rank  →  { rank: 150, similarity: 0.85 }  ← per guess
+POST /games/contextooo/score →  { saved: true, rank: 4 }  ← end of game
+```
 
 ---
 
@@ -412,6 +425,8 @@ The `JobQueue` (`src/jobs/JobQueue.js`) is an in-process singleton — no Redis 
 
 **Supported types:** `transcription` · `resume_analyze` · `resume_roast` · `interview_score`
 
+**`energyResetJob`** runs outside the JobQueue — it's a standalone `setTimeout`-based scheduler that fires at the next midnight UTC on startup, then every 24h. Executes a single bulk `UPDATE profiles SET daily_energy_count = 0 WHERE energy_reset_date < CURRENT_DATE`. Logs the number of rows reset.
+
 See [`docs/JOBS.md`](./docs/JOBS.md) for internals, monitoring, and the Bull+Redis upgrade path.
 
 ---
@@ -422,9 +437,11 @@ See [`docs/JOBS.md`](./docs/JOBS.md) for internals, monitoring, and the Bull+Red
 - Each submitted exercise costs **1 energy** (max 50/day, resets midnight UTC)
 - Exceeding limit → `402 ENERGY_DEPLETED` with `resets_at`
 - Contests **never** deduct energy
+- **Reset is automatic** — `energyResetJob` bulk-resets all stale users at midnight UTC
+- **Read-path safe** — `GET /users/me` and `GET /assignments/daily` both return `daily_energy_count = 0` if the reset date is in the past, even before the next background job fires
 
 ### Streak
-- Increments when `daily_energy_count ≥ MIN_DAILY_ENERGY_FOR_STREAK` (default: 1)
+- Increments when `daily_energy_count ≥ MIN_DAILY_ENERGY_FOR_STREAK` (default: 10)
 - One increment per calendar day, bonus XP = `streak × 5`
 
 ### Streak Badges
@@ -589,6 +606,7 @@ npm run smoke         # Run end-to-end smoke test (requires server running)
 | **M4 — Mini-Games & Contests** | ✅ Done | 5 game types, contest flow (create/join/leaderboard/score/complete), live rank recalc, Pro prize distribution, certificate PDF generation |
 | **M5 — Admin, Security & Handover** | ✅ Done | Full admin API (18 endpoints), rate limiting, audio retention cron, GDPR delete, promo codes, job retry, CSV exports, OpenAPI spec, all seed files, smoke test |
 | **M6 — Google OAuth (Mobile)** | ✅ Done | Google Sign-In ID token verification, new user creation, account linking for existing email users, `auth_provider` tracking, Postman collection updated, full Flutter + React Native setup guide |
+| **M7 — Gamification & Energy Fixes** | ✅ Done | Contextooo semantic ranking via Gemini embeddings (`text-embedding-004`), exercise submit now returns `new_total_xp` + `streak_count`, energy auto-reset at midnight UTC (`energyResetJob`), stale energy fixed on all read paths (`/users/me`, `/assignments/daily`) |
 
 ---
 
