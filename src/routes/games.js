@@ -43,7 +43,7 @@ router.get('/games/:type/seed', auth, async (req, res, next) => {
   }
 
   try {
-    const game = await gameService.getGameSeed(type);
+    const game = await gameService.getGameSeed(req.user.id, type);
     if (!game) {
       return fail(res, 'No games available for this type', 'NOT_FOUND', 404);
     }

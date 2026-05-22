@@ -753,8 +753,9 @@ paths:
               example:
                 success: true
                 data:
-                  report_id: "report-uuid"
                   job_id: "job-uuid"
+                  status: "pending"
+                  report_id: "report-uuid"
                   message: "Analysis started. Poll /resumes/reports/:report_id for results."
         '404':
           description: Resume not found

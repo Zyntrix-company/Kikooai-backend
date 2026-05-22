@@ -1,5 +1,7 @@
 import pool from '../db/pool.js';
 import { resetEnergyIfStale } from './exerciseService.js';
+import { pickExerciseSeed, recordSeedExposure } from './seedSelectionService.js';
+import { UTC_TODAY_SQL } from '../utils/utcSql.js';
 
 // XP thresholds → difficulty + CEFR label
 function levelFromXp(xp) {
@@ -20,16 +22,9 @@ const DAILY_PLAN = [
 
 /**
  * Build and return the user's daily assignment set based on their XP level.
- *
- * Strategy:
- *  - Determine difficulty from XP.
- *  - For each slot in DAILY_PLAN, pick a random seed of that type + difficulty.
- *  - Fall back to 'medium' if no seed found at the target difficulty.
- *  - Strip answer_key/acceptable_variants before returning (same as /exercises/:type/seed).
- *  - Count today's exercise_submissions to show progress.
+ * Seeds are deduplicated against recent submissions and within the same response.
  */
 export async function getDailyAssignment(userId) {
-  // 1. Fetch user level (reset energy first so daily_energy_used is accurate)
   await resetEnergyIfStale(userId);
   const { rows: [profile] } = await pool.query(
     'SELECT xp, daily_energy_count FROM profiles WHERE user_id = $1',
@@ -40,25 +35,23 @@ export async function getDailyAssignment(userId) {
   const energy = profile?.daily_energy_count ?? 0;
   const { difficulty, cefr } = levelFromXp(xp);
 
-  // 2. Fetch seeds for each slot
   const assignments = [];
+  const pickedIds = [];
 
   for (const slot of DAILY_PLAN) {
     for (let i = 0; i < slot.count; i++) {
-      // Try target difficulty first, fall back to medium
       let seed = null;
 
       for (const diff of [difficulty, 'medium', 'easy']) {
-        const { rows } = await pool.query(
-          'SELECT * FROM exercise_seeds WHERE type = $1 AND difficulty = $2 ORDER BY RANDOM() LIMIT 1',
-          [slot.type, diff]
-        );
-        if (rows[0]) { seed = rows[0]; break; }
+        seed = await pickExerciseSeed(userId, slot.type, diff, pickedIds);
+        if (seed) break;
       }
 
-      if (!seed) continue; // type has no seeds at all — skip
+      if (!seed) continue;
 
-      // Strip answer from payload
+      await recordSeedExposure(userId, 'exercise', seed.id);
+      pickedIds.push(seed.id);
+
       const { answer_key, acceptable_variants, ...safePayload } = seed.payload;
 
       assignments.push({
@@ -73,13 +66,12 @@ export async function getDailyAssignment(userId) {
     }
   }
 
-  // 3. Count completions today
-  const today = new Date().toISOString().slice(0, 10);
   const { rows: [countRow] } = await pool.query(
     `SELECT COUNT(*) AS completed
      FROM exercise_submissions
-     WHERE user_id = $1 AND DATE(submitted_at) = $2`,
-    [userId, today]
+     WHERE user_id = $1
+       AND (submitted_at AT TIME ZONE 'UTC')::date = ${UTC_TODAY_SQL}`,
+    [userId]
   );
   const completedToday = parseInt(countRow?.completed ?? 0, 10);
 

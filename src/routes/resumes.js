@@ -90,7 +90,12 @@ router.post('/resumes/analyze', auth, validate(analyzeSchema), async (req, res, 
     });
     return res.status(202).json({
       success: true,
-      data: { ...result, message: 'Analysis started. Poll /resumes/reports/:report_id for results.' },
+      data: {
+        job_id:    result.job_id,
+        status:    result.status,
+        report_id: result.report_id,
+        message:   'Analysis started. Poll /resumes/reports/:report_id for results.',
+      },
     });
   } catch (err) {
     if (err.code === 'RESUME_NOT_FOUND') return fail(res, err.message, err.code, 404);
@@ -113,7 +118,12 @@ router.post('/resumes/roast', auth, validate(analyzeSchema), async (req, res, ne
     });
     return res.status(202).json({
       success: true,
-      data: { ...result, message: 'Roast started. Poll /resumes/reports/:report_id for results.' },
+      data: {
+        job_id:    result.job_id,
+        status:    result.status,
+        report_id: result.report_id,
+        message:   'Roast started. Poll /resumes/reports/:report_id for results.',
+      },
     });
   } catch (err) {
     if (err.code === 'RESUME_NOT_FOUND') return fail(res, err.message, err.code, 404);

@@ -1,6 +1,7 @@
 import pool from '../db/pool.js';
 import { generateCertificate } from './certificateService.js';
 import { uploadBufferAsRaw } from './cloudinaryService.js';
+import { pickGameSeed, recordSeedExposure } from './seedSelectionService.js';
 
 // ─── Error helpers ────────────────────────────────────────────────────────────
 
@@ -87,24 +88,23 @@ async function logAdminAction(adminId, action, targetType, targetId, metadata = 
  * @param {string|null} pinnedSeedId  Already-chosen seed for this contest (non-randomized mode).
  * @returns {{ seedId: string|null, seedPayload: object|null }}
  */
-async function resolveGameSeed(gameType, randomize, pinnedSeedId) {
+async function resolveGameSeed(gameType, randomize, pinnedSeedId, userId = null) {
   try {
-    let query, params;
-
     if (!randomize && pinnedSeedId) {
-      query  = 'SELECT id, seed_json FROM games WHERE id = $1 AND is_active = true LIMIT 1';
-      params = [pinnedSeedId];
-    } else {
-      query  = 'SELECT id, seed_json FROM games WHERE type = $1 AND is_active = true ORDER BY RANDOM() LIMIT 1';
-      params = [gameType];
+      const { rows } = await pool.query(
+        'SELECT id, seed_json FROM games WHERE id = $1 AND is_active = true LIMIT 1',
+        [pinnedSeedId]
+      );
+      if (!rows[0]) return { seedId: null, seedPayload: null };
+      return { seedId: rows[0].id, seedPayload: rows[0].seed_json };
     }
 
-    const { rows } = await pool.query(query, params);
-    if (!rows[0]) return { seedId: null, seedPayload: null };
+    const game = await pickGameSeed(userId, gameType);
+    if (!game) return { seedId: null, seedPayload: null };
 
-    return { seedId: rows[0].id, seedPayload: rows[0].seed_json };
+    if (userId) await recordSeedExposure(userId, 'game', game.id);
+    return { seedId: game.id, seedPayload: game.seed_json };
   } catch {
-    // games table not yet created — proceed without seed
     return { seedId: null, seedPayload: null };
   }
 }
@@ -172,7 +172,12 @@ export async function joinContest(token, userId) {
   // Resolve game seed
   const randomize    = !!contest.settings?.randomize_seed;
   const pinnedSeedId = contest.settings?.pinned_seed_id || null;
-  const { seedId, seedPayload } = await resolveGameSeed(contest.game_type, randomize, pinnedSeedId);
+  const { seedId, seedPayload } = await resolveGameSeed(
+    contest.game_type,
+    randomize,
+    pinnedSeedId,
+    userId
+  );
 
   const { rows: pRows } = await pool.query(
     `INSERT INTO contest_participants (contest_id, user_id, game_seed_id)

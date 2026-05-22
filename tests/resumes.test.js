@@ -135,7 +135,10 @@ describe('Resumes', () => {
       .send({ resume_id: savedResumeId, jd_text: SAMPLE_JD });
 
     assert.equal(res.status, 202, `Expected 202, got ${res.status}: ${JSON.stringify(res.body)}`);
+    assert.ok(res.body.data.job_id, 'Missing job_id');
+    assert.equal(res.body.data.status, 'pending');
     assert.ok(res.body.data.report_id, 'Missing report_id');
+    assert.notEqual(res.body.data.resume_id, savedResumeId, 'Response must not echo request body');
   });
 
   // ── POST /resumes/roast ─────────────────────────────────────────────────────
@@ -149,6 +152,8 @@ describe('Resumes', () => {
       .send({ resume_id: savedResumeId, jd_text: SAMPLE_JD });
 
     assert.equal(res.status, 202);
+    assert.ok(res.body.data.job_id, 'Missing job_id');
+    assert.equal(res.body.data.status, 'pending');
     assert.ok(res.body.data.report_id, 'Missing report_id');
   });
 

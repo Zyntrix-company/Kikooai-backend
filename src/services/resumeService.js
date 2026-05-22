@@ -1,14 +1,9 @@
 import pool from '../db/pool.js';
 import * as cloudinaryService from './cloudinaryService.js';
-import * as geminiService from './geminiService.js';
 import { jobQueue } from '../jobs/JobQueue.js';
 import { resumeJobHandler } from '../jobs/resumeJob.js';
 
-const MIME_BY_FORMAT = {
-  pdf:  'application/pdf',
-  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  txt:  'text/plain',
-};
+export { getResumeText } from './resumeText.js';
 
 function notFound(msg, code) {
   return Object.assign(new Error(msg), { status: 404, code });
@@ -80,29 +75,6 @@ export async function saveResumeJson(userId, { title, jsonBlob }) {
   return rows[0];
 }
 
-export async function getResumeText(resumeId, userId) {
-  const { rows } = await pool.query(
-    'SELECT * FROM resumes WHERE id = $1 AND user_id = $2',
-    [resumeId, userId]
-  );
-  if (!rows[0]) throw notFound('Resume not found', 'RESUME_NOT_FOUND');
-
-  const resume = rows[0];
-
-  if (resume.json_blob !== null) {
-    return { text: JSON.stringify(resume.json_blob, null, 2), source: 'json' };
-  }
-
-  if (resume.cloudinary_public_id && resume.cloudinary_public_id !== 'pending') {
-    const { buffer, format } = await cloudinaryService.downloadRawAsBuffer(resume.cloudinary_public_id);
-    const mimeType = MIME_BY_FORMAT[format] || MIME_BY_FORMAT[resume.file_format] || 'application/pdf';
-    const text     = await geminiService.extractResumeText(buffer, mimeType);
-    return { text, source: 'file' };
-  }
-
-  throw badRequest('Resume has no content yet', 'RESUME_NO_CONTENT');
-}
-
 export async function createReport(resumeId, userId, { jdText, coverLetter, analysisType }) {
   // Verify ownership
   const { rows: resumeRows } = await pool.query(
@@ -111,16 +83,23 @@ export async function createReport(resumeId, userId, { jdText, coverLetter, anal
   );
   if (!resumeRows[0]) throw notFound('Resume not found', 'RESUME_NOT_FOUND');
 
-  const { text: resumeText } = await getResumeText(resumeId, userId);
-
   const jobType = analysisType === 'roast' ? 'resume_roast' : 'resume_analyze';
 
-  // Create the job row first so we have its id
+  const payload = {
+    reportId:     null, // filled after report row is created
+    resumeId,
+    userId,
+    jdText,
+    coverLetter:  coverLetter || null,
+    analysisType,
+  };
+
+  // Create the job row first so we have its id (persist payload for admin retry / recovery)
   const { rows: jobRows } = await pool.query(
     `INSERT INTO jobs (type, status, user_id, payload_ref)
-     VALUES ($1, 'pending', $2, '{}')
+     VALUES ($1, 'pending', $2, $3)
      RETURNING id`,
-    [jobType, userId]
+    [jobType, userId, JSON.stringify(payload)]
   );
   const jobId = jobRows[0].id;
 
@@ -133,15 +112,16 @@ export async function createReport(resumeId, userId, { jdText, coverLetter, anal
   );
   const reportId = reportRows[0].id;
 
-  // Enqueue using the existing job row
-  await jobQueue.enqueue(
-    jobType,
-    { reportId, resumeId, resumeText, jdText, coverLetter: coverLetter || null, analysisType },
-    resumeJobHandler,
-    { userId, jobId }
+  payload.reportId = reportId;
+  await pool.query(
+    'UPDATE jobs SET payload_ref = $1 WHERE id = $2',
+    [JSON.stringify(payload), jobId]
   );
 
-  return { report_id: reportId, job_id: jobId };
+  // Enqueue using the existing job row (resume text extraction runs in the worker)
+  await jobQueue.enqueue(jobType, payload, resumeJobHandler, { userId, jobId });
+
+  return { report_id: reportId, job_id: jobId, status: 'pending' };
 }
 
 export async function getReport(reportId, userId) {

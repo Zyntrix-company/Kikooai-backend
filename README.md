@@ -425,7 +425,7 @@ The `JobQueue` (`src/jobs/JobQueue.js`) is an in-process singleton — no Redis 
 
 **Supported types:** `transcription` · `resume_analyze` · `resume_roast` · `interview_score`
 
-**`energyResetJob`** runs outside the JobQueue — it's a standalone `setTimeout`-based scheduler that fires at the next midnight UTC on startup, then every 24h. Executes a single bulk `UPDATE profiles SET daily_energy_count = 0 WHERE energy_reset_date < CURRENT_DATE`. Logs the number of rows reset.
+**`energyResetJob`** runs outside the JobQueue — it's a standalone `setTimeout`-based scheduler that fires at **00:00 UTC** on startup (then every 24h). Executes a bulk `UPDATE profiles SET daily_energy_count = 0 WHERE energy_reset_date < (NOW() AT TIME ZONE 'UTC')::date`. All read/submit paths use the same UTC date for consistency.
 
 See [`docs/JOBS.md`](./docs/JOBS.md) for internals, monitoring, and the Bull+Redis upgrade path.
 
@@ -437,8 +437,9 @@ See [`docs/JOBS.md`](./docs/JOBS.md) for internals, monitoring, and the Bull+Red
 - Each submitted exercise costs **1 energy** (max 50/day, resets midnight UTC)
 - Exceeding limit → `402 ENERGY_DEPLETED` with `resets_at`
 - Contests **never** deduct energy
-- **Reset is automatic** — `energyResetJob` bulk-resets all stale users at midnight UTC
-- **Read-path safe** — `GET /users/me` and `GET /assignments/daily` both return `daily_energy_count = 0` if the reset date is in the past, even before the next background job fires
+- **Reset is automatic** — `energyResetJob` bulk-resets all stale users at **00:00 UTC** daily
+- **Read-path safe** — `GET /users/me` and `GET /assignments/daily` use UTC dates; per-user reset persists on submit and daily fetch
+- **Content dedup** — each `GET …/seed` returns a seed the user has not seen yet (`user_seed_exposures` + submissions/scores); cycles only after the full pool for that type/difficulty is exhausted
 
 ### Streak
 - Increments when `daily_energy_count ≥ MIN_DAILY_ENERGY_FOR_STREAK` (default: 10)

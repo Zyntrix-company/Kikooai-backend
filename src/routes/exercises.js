@@ -67,7 +67,7 @@ router.get('/exercises/:type/seed', auth, async (req, res, next) => {
   }
 
   try {
-    const seed = await exerciseService.getExerciseSeed(type, difficulty);
+    const seed = await exerciseService.getExerciseSeed(req.user.id, type, difficulty);
     if (!seed) {
       return fail(res, 'No exercises available for this type and difficulty', 'NOT_FOUND', 404);
     }

@@ -1,5 +1,7 @@
 import pool from '../db/pool.js';
 import * as geminiService from './geminiService.js';
+import { resetUserEnergyIfStale } from '../utils/energyReset.js';
+import { pickExerciseSeed, recordSeedExposure } from './seedSelectionService.js';
 
 const MAX_DAILY_ENERGY = 50;
 
@@ -7,12 +9,10 @@ function normalize(s) {
   return String(s).trim().toLowerCase();
 }
 
-export async function getExerciseSeed(type, difficulty = 'medium') {
-  const { rows } = await pool.query(
-    'SELECT * FROM exercise_seeds WHERE type = $1 AND difficulty = $2 ORDER BY RANDOM() LIMIT 1',
-    [type, difficulty]
-  );
-  return rows[0] || null;
+export async function getExerciseSeed(userId, type, difficulty = 'medium') {
+  const seed = await pickExerciseSeed(userId, type, difficulty);
+  if (seed) await recordSeedExposure(userId, 'exercise', seed.id);
+  return seed;
 }
 
 export async function evaluateAnswer(seedId, userAnswer) {
@@ -56,13 +56,7 @@ export async function evaluateAnswer(seedId, userAnswer) {
 }
 
 export async function resetEnergyIfStale(userId) {
-  const today = new Date().toISOString().slice(0, 10);
-  const { rowCount } = await pool.query(
-    `UPDATE profiles SET daily_energy_count = 0, energy_reset_date = CURRENT_DATE
-     WHERE user_id = $1 AND energy_reset_date < $2::date`,
-    [userId, today]
-  );
-  return rowCount > 0;
+  return resetUserEnergyIfStale(userId);
 }
 
 export async function checkAndResetEnergy(userId) {
@@ -137,6 +131,7 @@ export async function submitExercise(userId, seedId, userAnswer) {
      VALUES ($1, $2, $3, $4, $5, $6)`,
     [userId, seedId, JSON.stringify(userAnswer), is_correct, score, xp_awarded]
   );
+  await recordSeedExposure(userId, 'exercise', seedId);
 
   await pool.query(
     'UPDATE profiles SET xp = xp + $1, daily_energy_count = daily_energy_count + 1 WHERE user_id = $2',
@@ -253,17 +248,13 @@ export async function getSpeakingPrompt(userId) {
   else if (xp <= 1500) difficulty = 'medium'; // B1 / B2
   else difficulty = 'hard';                  // C1
 
-  let { rows } = await pool.query(
-    "SELECT * FROM exercise_seeds WHERE type = 'speaking_prompt' AND difficulty = $1 ORDER BY RANDOM() LIMIT 1",
-    [difficulty]
-  );
-
-  if (!rows[0] && difficulty !== 'medium') {
-    const fallback = await pool.query(
-      "SELECT * FROM exercise_seeds WHERE type = 'speaking_prompt' AND difficulty = 'medium' ORDER BY RANDOM() LIMIT 1"
-    );
-    rows = fallback.rows;
+  for (const diff of [difficulty, 'medium', 'easy']) {
+    const seed = await pickExerciseSeed(userId, 'speaking_prompt', diff);
+    if (seed) {
+      await recordSeedExposure(userId, 'exercise', seed.id);
+      return seed;
+    }
   }
 
-  return rows[0] || null;
+  return null;
 }

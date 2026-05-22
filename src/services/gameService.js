@@ -1,12 +1,11 @@
 import pool from '../db/pool.js';
 import { computeWordSimilarity } from './geminiService.js';
+import { pickGameSeed, recordSeedExposure } from './seedSelectionService.js';
 
-export async function getGameSeed(type) {
-  const { rows } = await pool.query(
-    'SELECT * FROM games WHERE type = $1 AND is_active = true ORDER BY RANDOM() LIMIT 1',
-    [type]
-  );
-  return rows[0] || null;
+export async function getGameSeed(userId, type) {
+  const game = await pickGameSeed(userId, type);
+  if (game) await recordSeedExposure(userId, 'game', game.id);
+  return game;
 }
 
 export async function submitScore(userId, gameId, scoreData) {
@@ -17,6 +16,7 @@ export async function submitScore(userId, gameId, scoreData) {
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [userId, gameId, score, combo, hearts_left, time_taken_seconds, JSON.stringify(metadata)]
   );
+  await recordSeedExposure(userId, 'game', gameId);
 
   const { rows } = await pool.query(
     'SELECT COUNT(*) + 1 AS rank FROM game_scores WHERE game_id = $1 AND score > $2',

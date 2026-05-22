@@ -1,17 +1,26 @@
 import pool from '../db/pool.js';
 import * as geminiService from '../services/geminiService.js';
+import { getResumeText } from '../services/resumeText.js';
 
 /**
  * Resume analysis job handler — runs inside the JobQueue worker.
  *
- * @param {{ reportId: string, resumeId: string, resumeText: string, jdText: string, coverLetter: string|null, analysisType: 'analyze'|'roast' }} payload
+ * @param {{ reportId: string, resumeId: string, userId: string, jdText: string, coverLetter: string|null, analysisType: 'analyze'|'roast' }} payload
  * @param {(pct: number) => Promise<void>} onProgress
  */
 export async function resumeJobHandler(payload, onProgress) {
-  const { reportId, resumeText, jdText, coverLetter, analysisType } = payload;
+  const { reportId, resumeId, userId, jdText, coverLetter, analysisType } = payload;
 
   try {
     await onProgress(10);
+
+    await pool.query(
+      `UPDATE resume_reports SET status = 'processing' WHERE id = $1`,
+      [reportId]
+    );
+
+    const { text: resumeText } = await getResumeText(resumeId, userId);
+    await onProgress(30);
 
     const result = await geminiService.analyzeResume(resumeText, jdText, coverLetter, analysisType);
 

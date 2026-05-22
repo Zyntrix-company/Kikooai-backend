@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
 import pool from '../db/pool.js';
 import { sanitizeUser } from '../utils/sanitize.js';
+import { UTC_TODAY_SQL } from '../utils/utcSql.js';
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -120,8 +121,8 @@ export async function getUserById(id) {
             u.is_admin, u.created_at, u.last_active,
             p.interests, p.education, p.motive, p.targets, p.resume_ref,
             p.subscription_status, p.pro_expires_at, p.streak, p.xp,
-            CASE WHEN p.energy_reset_date < CURRENT_DATE THEN 0 ELSE p.daily_energy_count END AS daily_energy_count,
-            CASE WHEN p.energy_reset_date < CURRENT_DATE THEN CURRENT_DATE ELSE p.energy_reset_date END AS energy_reset_date,
+            CASE WHEN p.energy_reset_date < ${UTC_TODAY_SQL} THEN 0 ELSE p.daily_energy_count END AS daily_energy_count,
+            CASE WHEN p.energy_reset_date < ${UTC_TODAY_SQL} THEN ${UTC_TODAY_SQL} ELSE p.energy_reset_date END AS energy_reset_date,
             p.badges, p.last_streak_update
      FROM users u
      LEFT JOIN profiles p ON p.user_id = u.id
