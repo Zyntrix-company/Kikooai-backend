@@ -97,8 +97,10 @@ app.use('/api/v1', contestsRouter);
 app.use('/api/v1', adminRouter);
 app.use('/api/v1', learningPathRouter);
 
-// Background jobs
-startEnergyResetJob();
+// Background jobs (skip in test — setTimeout keeps CI runners alive)
+if (process.env.NODE_ENV !== 'test') {
+  startEnergyResetJob();
+}
 
 // 404 handler
 app.use((req, res) => {

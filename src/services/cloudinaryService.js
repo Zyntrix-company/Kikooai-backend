@@ -9,6 +9,14 @@ cloudinary.config({
 const AUDIO_FOLDER = process.env.CLOUDINARY_AUDIO_FOLDER || 'kikoo/audio';
 const cloudName   = process.env.CLOUDINARY_CLOUD_NAME;
 const apiKey      = process.env.CLOUDINARY_API_KEY;
+const IS_TEST     = process.env.NODE_ENV === 'test';
+
+function cloudinaryTestError(message, code = 'CLOUDINARY_ERROR', status = 400) {
+  const e = new Error(message);
+  e.code = code;
+  e.status = status;
+  return e;
+}
 
 /**
  * Generate a signed upload signature so the client can upload directly to Cloudinary.
@@ -45,6 +53,9 @@ export async function generateUploadSignature(userId, contextType) {
  * @param {string} publicId
  */
 export async function verifyAndFetchAsset(publicId) {
+  if (IS_TEST) {
+    throw cloudinaryTestError('Asset not found on Cloudinary');
+  }
   try {
     const result = await cloudinary.api.resource(publicId, { resource_type: 'video' });
     return {
@@ -69,6 +80,9 @@ export async function verifyAndFetchAsset(publicId) {
  * @returns {{ buffer: Buffer, format: string }}
  */
 export async function downloadAsBuffer(publicId) {
+  if (IS_TEST) {
+    throw cloudinaryTestError('Asset not found on Cloudinary');
+  }
   const asset = await verifyAndFetchAsset(publicId);
   const res   = await fetch(asset.secureUrl);
   if (!res.ok) {
@@ -87,6 +101,7 @@ export async function downloadAsBuffer(publicId) {
  * @param {'video'|'raw'|'image'} resourceType
  */
 export async function deleteAsset(publicId, resourceType = 'video') {
+  if (IS_TEST) return { result: 'ok' };
   return cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
 }
 
@@ -122,6 +137,9 @@ export async function generateResumeUploadSignature(userId) {
  * @param {string} publicId
  */
 export async function verifyRawAsset(publicId) {
+  if (IS_TEST) {
+    throw cloudinaryTestError('Raw asset not found on Cloudinary', 'FILE_NOT_FOUND_ON_CLOUDINARY');
+  }
   try {
     const result = await cloudinary.api.resource(publicId, { resource_type: 'raw' });
     return {
@@ -148,6 +166,12 @@ export async function verifyRawAsset(publicId) {
  * @returns {{ secureUrl: string, publicId: string }}
  */
 export async function uploadBufferAsRaw(buffer, publicId, mimeType = 'text/csv') {
+  if (IS_TEST) {
+    return {
+      secureUrl: `https://ci.example/${publicId}`,
+      publicId,
+    };
+  }
   const b64    = buffer.toString('base64');
   const dataUri = `data:${mimeType};base64,${b64}`;
 
@@ -173,6 +197,7 @@ export async function uploadBufferAsRaw(buffer, publicId, mimeType = 'text/csv')
  * @param {string} userId
  */
 export async function deleteUserAssets(userId) {
+  if (IS_TEST) return {};
   const results = {};
   try {
     results.audio = await cloudinary.api.delete_resources_by_prefix(
@@ -201,6 +226,9 @@ export async function deleteUserAssets(userId) {
  * @returns {{ buffer: Buffer, format: string }}
  */
 export async function downloadRawAsBuffer(publicId) {
+  if (IS_TEST) {
+    throw cloudinaryTestError('Raw asset not found on Cloudinary', 'CLOUDINARY_RAW_DOWNLOAD_FAILED');
+  }
   const asset = await verifyRawAsset(publicId);
 
   // private_download_url produces an API-gateway URL signed with api_key + secret,

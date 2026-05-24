@@ -9,6 +9,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     services:
       postgres:
@@ -58,4 +59,5 @@ jobs:
         run: npm run seed:users
 
       - name: Run tests
+        timeout-minutes: 10
         run: npm test
