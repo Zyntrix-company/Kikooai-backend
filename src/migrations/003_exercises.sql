@@ -1,4 +1,4 @@
-npm run seed:allCREATE TABLE exercise_seeds (
+CREATE TABLE exercise_seeds (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   type TEXT NOT NULL CHECK (type IN (
     'fillup', 'jumbled_word', 'jumbled_sentence', 'vocab',

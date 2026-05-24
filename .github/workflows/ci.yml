@@ -50,7 +50,9 @@ jobs:
         run: npm ci
 
       - name: Run migrations
-        run: npm run migrate
+        run: |
+          rm -f .env
+          npm run migrate
 
       - name: Seed test users
         run: npm run seed:users
