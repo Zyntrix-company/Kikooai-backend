@@ -2,7 +2,7 @@
 
 Production-ready REST API for **KikooAI** — an AI-powered English learning, interview prep, mini-games, and competitive contests platform.
 
-**Base URL (production):** `https://kikooai-backend.onrender.com`
+**Base URL (production):** `https://72-61-251-132.sslip.io` (HTTPS via Let's Encrypt — see [deploy/DEPLOY.md](deploy/DEPLOY.md))
 
 ---
 
@@ -16,7 +16,7 @@ Production-ready REST API for **KikooAI** — an AI-powered English learning, in
 | Auth | JWT (15m access token) + UUID refresh tokens (bcrypt-hashed) + Google OAuth (ID token verification) |
 | Validation | Joi |
 | File/Audio storage | Cloudinary v2 (client uploads directly — no proxy) |
-| AI | Google Gemini 2.0 Flash (generation) + `text-embedding-004` (semantic similarity) |
+| AI | Google Gemini 2.0 Flash (generation) + `gemini-embedding-001` (Contextooo semantic similarity) |
 | Background jobs | In-process `JobQueue` (setInterval — see `docs/JOBS.md` for Bull+Redis upgrade path) |
 | PDF generation | pdfkit (contest certificates) |
 | Rate limiting | express-rate-limit |
@@ -348,7 +348,7 @@ All routes 🔒. Rate limited: 30 req/min.
 **Game types:** `conexo` · `speed_reading` · `contextooo` · `word_blitz` · `guess_the_word`
 
 **Contextooo rank endpoint:**
-- Uses Gemini `text-embedding-004` to compute cosine similarity between the guess and the secret word
+- Uses Gemini `gemini-embedding-001` (override via `GEMINI_EMBEDDING_MODEL`) to compute cosine similarity between the guess and the secret word
 - `rank 1` = the secret word itself; scale is 1 (closest) → 1000 (furthest)
 - Call this on every guess during gameplay; call `/score` once at the end to record the final result
 
@@ -607,7 +607,7 @@ npm run smoke         # Run end-to-end smoke test (requires server running)
 | **M4 — Mini-Games & Contests** | ✅ Done | 5 game types, contest flow (create/join/leaderboard/score/complete), live rank recalc, Pro prize distribution, certificate PDF generation |
 | **M5 — Admin, Security & Handover** | ✅ Done | Full admin API (18 endpoints), rate limiting, audio retention cron, GDPR delete, promo codes, job retry, CSV exports, OpenAPI spec, all seed files, smoke test |
 | **M6 — Google OAuth (Mobile)** | ✅ Done | Google Sign-In ID token verification, new user creation, account linking for existing email users, `auth_provider` tracking, Postman collection updated, full Flutter + React Native setup guide |
-| **M7 — Gamification & Energy Fixes** | ✅ Done | Contextooo semantic ranking via Gemini embeddings (`text-embedding-004`), exercise submit now returns `new_total_xp` + `streak_count`, energy auto-reset at midnight UTC (`energyResetJob`), stale energy fixed on all read paths (`/users/me`, `/assignments/daily`) |
+| **M7 — Gamification & Energy Fixes** | ✅ Done | Contextooo semantic ranking via Gemini embeddings (`gemini-embedding-001`), exercise submit now returns `new_total_xp` + `streak_count`, energy auto-reset at midnight UTC (`energyResetJob`), stale energy fixed on all read paths (`/users/me`, `/assignments/daily`) |
 
 ---
 

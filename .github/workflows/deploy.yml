@@ -1,0 +1,66 @@
+name: Deploy to Hostinger VPS
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: true
+          command_timeout: 15m
+          script: |
+            set -euo pipefail
+            APP_DIR="${{ secrets.VPS_APP_DIR || '/opt/kikooai-backend' }}"
+            BRANCH="${{ secrets.VPS_DEPLOY_BRANCH || 'main' }}"
+
+            if [ ! -d "$APP_DIR/.git" ]; then
+              echo "ERROR: $APP_DIR is not a git clone. Run deploy/setup-server.sh on the VPS first."
+              exit 1
+            fi
+
+            cd "$APP_DIR"
+            git fetch origin
+            git checkout "$BRANCH"
+            git reset --hard "origin/$BRANCH"
+
+            export NODE_ENV=production
+            npm ci --omit=dev
+            npm run migrate
+
+            if command -v pm2 >/dev/null 2>&1; then
+              pm2 reload ecosystem.config.cjs --env production --update-env || pm2 start ecosystem.config.cjs --env production
+              pm2 save
+            else
+              echo "PM2 not found. Install with: npm i -g pm2"
+              exit 1
+            fi
+
+            sleep 3
+            HEALTH_PORT=$(grep -E '^PORT=' "$APP_DIR/.env" 2>/dev/null | cut -d= -f2 || echo 3001)
+            curl -fsS "http://127.0.0.1:${HEALTH_PORT}/healthz" | head -c 500
+            echo ""
+            echo "Deploy finished."
