@@ -443,7 +443,9 @@ See [`docs/JOBS.md`](./docs/JOBS.md) for internals, monitoring, and the Bull+Red
 
 ### Streak
 - Increments when `daily_energy_count ≥ MIN_DAILY_ENERGY_FOR_STREAK` (default: 10)
-- One increment per calendar day, bonus XP = `streak × 5`
+- **At most one increment per UTC calendar day** (atomic DB check on `last_streak_update`)
+- Consecutive UTC days: `streak + 1`; missed day(s): resets to `1`
+- Bonus XP on increment = `new_streak × 5`
 
 ### Streak Badges
 | Milestone | Badge ID |

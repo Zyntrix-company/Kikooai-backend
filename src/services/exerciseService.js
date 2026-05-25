@@ -1,6 +1,7 @@
 import pool from '../db/pool.js';
 import * as geminiService from './geminiService.js';
 import { resetUserEnergyIfStale } from '../utils/energyReset.js';
+import { checkStreakUpdate } from '../utils/streak.js';
 import { pickExerciseSeed, recordSeedExposure } from './seedSelectionService.js';
 
 const MAX_DAILY_ENERGY = 50;
@@ -76,48 +77,6 @@ export async function checkAndResetEnergy(userId) {
     err.resets_at = tomorrow.toISOString();
     throw err;
   }
-}
-
-export async function checkStreakUpdate(userId) {
-  const MIN_ENERGY = parseInt(process.env.MIN_DAILY_ENERGY_FOR_STREAK || '10', 10);
-
-  const { rows: [profile] } = await pool.query(
-    'SELECT daily_energy_count, streak, last_streak_update, badges FROM profiles WHERE user_id = $1',
-    [userId]
-  );
-
-  if (profile.daily_energy_count < MIN_ENERGY) return;
-
-  const today = new Date().toISOString().slice(0, 10);
-  const lastUpdate = profile.last_streak_update
-    ? String(profile.last_streak_update).slice(0, 10)
-    : null;
-
-  if (lastUpdate === today) return; // already updated today
-
-  const newStreak = profile.streak + 1;
-  const bonusXp = newStreak * 5;
-
-  const milestones = {
-    7:   { id: 'streak_7',   name: '7-Day Streak' },
-    30:  { id: 'streak_30',  name: '30-Day Streak' },
-    100: { id: 'streak_100', name: '100-Day Streak' },
-  };
-
-  let badges = profile.badges || [];
-  if (milestones[newStreak]) {
-    badges = [
-      ...badges,
-      { ...milestones[newStreak], awarded_at: new Date().toISOString() },
-    ];
-  }
-
-  await pool.query(
-    `UPDATE profiles
-     SET streak = $1, last_streak_update = CURRENT_DATE, xp = xp + $2, badges = $3
-     WHERE user_id = $4`,
-    [newStreak, bonusXp, JSON.stringify(badges), userId]
-  );
 }
 
 export async function submitExercise(userId, seedId, userAnswer) {
@@ -226,8 +185,10 @@ export async function evaluateSpeakingExercise(userId, audioId, promptId) {
     ]
   );
 
+  await checkAndResetEnergy(userId);
+
   await pool.query(
-    'UPDATE profiles SET xp = xp + $1 WHERE user_id = $2',
+    'UPDATE profiles SET xp = xp + $1, daily_energy_count = daily_energy_count + 1 WHERE user_id = $2',
     [xpAwarded, userId]
   );
 
