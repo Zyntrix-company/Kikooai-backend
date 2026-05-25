@@ -150,4 +150,25 @@ describe('Games', () => {
 
     assert.equal(res.status, 200);
   });
+
+  it('POST /games/contextooo/rank → 200 with rank and similarity', async () => {
+    const seedRes = await request(app)
+      .get(`${BASE}/games/contextooo/seed`)
+      .set(bearer(testUser.accessToken));
+
+    if (seedRes.status === 404) return;
+
+    assert.equal(seedRes.status, 200);
+    const seedId = seedRes.body.data.game.id;
+
+    const res = await request(app)
+      .post(`${BASE}/games/contextooo/rank`)
+      .set(bearer(testUser.accessToken))
+      .send({ seedId, guess: 'beverage' });
+
+    assert.equal(res.status, 200, `Expected 200, got ${res.status}: ${JSON.stringify(res.body)}`);
+    assert.ok(typeof res.body.data.rank === 'number', 'Missing rank');
+    assert.ok(typeof res.body.data.similarity === 'number', 'Missing similarity');
+    assert.ok(res.body.data.rank >= 1 && res.body.data.rank <= 1000);
+  });
 });

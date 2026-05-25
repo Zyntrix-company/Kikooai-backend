@@ -2803,7 +2803,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "games", "contextooo", "rank"]
             },
-            "description": "Rank a word guess against the secret word using Gemini semantic embeddings (text-embedding-004).\n\n- `seedId`: the game `id` from `GET /games/contextooo/seed`\n- `guess`: the word to rank\n- `rank 1` = exact semantic match to the secret word\n- `rank` ranges from 1 (closest) to 1000 (furthest)\n- `similarity` is the raw cosine similarity score (0–1)"
+            "description": "Rank a word guess against the secret word using Gemini semantic embeddings (gemini-embedding-001).\n\n- `seedId`: the game `id` from `GET /games/contextooo/seed`\n- `guess`: the word to rank\n- `rank 1` = exact semantic match to the secret word\n- `rank` ranges from 1 (closest) to 1000 (furthest)\n- `similarity` is the raw cosine similarity score (0–1)"
           },
           "response": [
             {
