@@ -1,11 +1,18 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, TaskType } from '@google/generative-ai';
+import {
+  generateContentWithFallback,
+  getGeminiApiKey,
+  wrapGeminiError,
+  isGeminiQuotaError,
+  withGeminiRetry,
+} from '../utils/geminiClient.js';
 
-const genAI = new GoogleGenerativeAI(
-  process.env.GEMINI_API_KEY || process.env.AI_API_KEY
-);
+const genAI = new GoogleGenerativeAI(getGeminiApiKey());
 
-function getModel() {
-  const modelName = process.env.GEMINI_MODEL || process.env.AI_MODEL || 'gemini-2.0-flash';
+const DEFAULT_EMBEDDING_MODEL = 'gemini-embedding-001';
+
+function getEmbeddingModel() {
+  const modelName = process.env.GEMINI_EMBEDDING_MODEL || DEFAULT_EMBEDDING_MODEL;
   return genAI.getGenerativeModel({ model: modelName });
 }
 
@@ -16,28 +23,26 @@ function getModel() {
  * @returns {{ text: string, confidence: number }}
  */
 export async function transcribeAudio(audioBuffer, mimeType) {
-  const model      = getModel();
   const base64Data = audioBuffer.toString('base64');
 
   // Normalise: Gemini supports video/webm but not audio/webm
   const normalisedMime = mimeType === 'audio/webm' ? 'video/webm' : mimeType;
 
   try {
-    const result = await model.generateContent([
-      { inlineData: { mimeType: normalisedMime, data: base64Data } },
-      { text: 'Transcribe this audio exactly as spoken. Return only the transcribed text with no additional commentary, labels, or formatting.' },
-    ]);
+    const result = await generateContentWithFallback((model) =>
+      model.generateContent([
+        { inlineData: { mimeType: normalisedMime, data: base64Data } },
+        {
+          text: 'Transcribe this audio exactly as spoken. Return only the transcribed text with no additional commentary, labels, or formatting.',
+        },
+      ])
+    );
 
     const text = result.response.text().trim();
     return { text, confidence: 0.85 };
   } catch (err) {
-    // Log and surface the real Gemini error so it appears in job.error_message
-    const detail = err?.message || String(err);
-    console.error('[gemini] transcribeAudio error:', detail);
-    const e  = new Error(`AI transcription failed: ${detail}`);
-    e.code   = 'AI_SERVICE_ERROR';
-    e.status = 502;
-    throw e;
+    console.error('[gemini] transcribeAudio error:', err?.message);
+    throw wrapGeminiError(err, 'AI transcription failed');
   }
 }
 
@@ -70,7 +75,6 @@ Return ONLY a valid JSON object — no markdown, no backticks, no explanation.`;
  * @param {'speaking'|'interview'|'speed_reading'} contextType
  */
 export async function analyzeTranscript(transcriptText, promptText, contextType) {
-  const model      = getModel();
   const systemPrompt = buildSystemPrompt(contextType);
   const userMessage  =
     'Transcript: ' +
@@ -82,13 +86,12 @@ export async function analyzeTranscript(transcriptText, promptText, contextType)
 
   let rawText;
   try {
-    const result = await model.generateContent(fullPrompt);
+    const result = await generateContentWithFallback((model) =>
+      model.generateContent(fullPrompt)
+    );
     rawText = result.response.text().trim();
   } catch (err) {
-    const e  = new Error('AI analysis service failed');
-    e.code   = 'AI_SERVICE_ERROR';
-    e.status = 502;
-    throw e;
+    throw wrapGeminiError(err, 'AI analysis service failed');
   }
 
   // Strip markdown code fences if present
@@ -99,10 +102,12 @@ export async function analyzeTranscript(transcriptText, promptText, contextType)
   } catch {
     // Retry once with an even more explicit instruction
     try {
-      const retry  = await model.generateContent(
-        systemPrompt +
-        '\n\nReturn ONLY raw JSON with no markdown, no backticks, no explanation:\n' +
-        userMessage
+      const retry = await generateContentWithFallback((model) =>
+        model.generateContent(
+          systemPrompt +
+            '\n\nReturn ONLY raw JSON with no markdown, no backticks, no explanation:\n' +
+            userMessage
+        )
       );
       const raw2   = retry.response.text().trim()
         .replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
@@ -129,13 +134,49 @@ function cosineSimilarity(a, b) {
 }
 
 export async function computeWordSimilarity(wordA, wordB) {
-  const embModel = genAI.getGenerativeModel({ model: 'text-embedding-004' });
-  const [resA, resB] = await Promise.all([
-    embModel.embedContent(wordA.toLowerCase()),
-    embModel.embedContent(wordB.toLowerCase()),
-  ]);
-  const similarity = cosineSimilarity(resA.embedding.values, resB.embedding.values);
-  // Map similarity [0, 1] → rank [1, 1000]. Rank 1 = secret word itself.
+  const a = String(wordA).trim().toLowerCase();
+  const b = String(wordB).trim().toLowerCase();
+
+  if (!a || !b) {
+    const err = new Error('Both words are required for similarity ranking');
+    err.code = 'INVALID_INPUT';
+    err.status = 400;
+    throw err;
+  }
+
+  if (a === b) {
+    return { similarity: 1, rank: 1 };
+  }
+
+  const embModel = getEmbeddingModel();
+  const embedOpts = { taskType: TaskType.SEMANTIC_SIMILARITY };
+
+  let resA;
+  let resB;
+  try {
+    [resA, resB] = await Promise.all([
+      withGeminiRetry(() =>
+        embModel.embedContent({ content: { parts: [{ text: a }] }, ...embedOpts })
+      ),
+      withGeminiRetry(() =>
+        embModel.embedContent({ content: { parts: [{ text: b }] }, ...embedOpts })
+      ),
+    ]);
+  } catch (err) {
+    console.error('[gemini] computeWordSimilarity embedContent error:', err?.message);
+    throw wrapGeminiError(err, 'Failed to rank guess');
+  }
+
+  const valuesA = resA?.embedding?.values;
+  const valuesB = resB?.embedding?.values;
+  if (!valuesA?.length || !valuesB?.length) {
+    const e = new Error('Embedding API returned an empty vector');
+    e.code = 'AI_SERVICE_ERROR';
+    e.status = 502;
+    throw e;
+  }
+
+  const similarity = cosineSimilarity(valuesA, valuesB);
   const rank = similarity >= 0.999 ? 1 : Math.max(2, Math.round((1 - similarity) * 999) + 1);
   return { similarity: Math.round(similarity * 10000) / 10000, rank };
 }
@@ -149,22 +190,21 @@ export async function computeWordSimilarity(wordA, wordB) {
  * @returns {string}
  */
 export async function extractResumeText(fileBuffer, mimeType) {
-  const model      = getModel();
   const base64Data = fileBuffer.toString('base64');
 
   try {
-    const result = await model.generateContent([
-      { inlineData: { mimeType, data: base64Data } },
-      { text: 'Extract all text content from this resume document exactly as written. Return only the plain text with no additional commentary.' },
-    ]);
+    const result = await generateContentWithFallback((model) =>
+      model.generateContent([
+        { inlineData: { mimeType, data: base64Data } },
+        {
+          text: 'Extract all text content from this resume document exactly as written. Return only the plain text with no additional commentary.',
+        },
+      ])
+    );
     return result.response.text().trim();
   } catch (err) {
-    const detail = err?.message || String(err);
-    console.error('[gemini] extractResumeText error:', detail);
-    const e  = new Error(`AI resume text extraction failed: ${detail}`);
-    e.code   = 'AI_SERVICE_ERROR';
-    e.status = 502;
-    throw e;
+    console.error('[gemini] extractResumeText error:', err?.message);
+    throw wrapGeminiError(err, 'AI resume text extraction failed');
   }
 }
 
@@ -189,8 +229,6 @@ const RESUME_REPORT_SCHEMA = `{
  * @param {'analyze'|'roast'} analysisType
  */
 export async function analyzeResume(resumeText, jdText, coverLetter, analysisType) {
-  const model = getModel();
-
   const coverLetterSection = coverLetter
     ? `Cover Letter: ${coverLetter}`
     : 'Cover Letter (if provided): Not provided';
@@ -220,15 +258,13 @@ export async function analyzeResume(resumeText, jdText, coverLetter, analysisTyp
 
   let rawText;
   try {
-    const result = await model.generateContent(prompt);
+    const result = await generateContentWithFallback((model) =>
+      model.generateContent(prompt)
+    );
     rawText = result.response.text().trim();
   } catch (err) {
-    const detail = err?.message || String(err);
-    console.error('[gemini] analyzeResume generateContent error:', detail);
-    const e  = new Error(`AI resume analysis failed: ${detail}`);
-    e.code   = 'AI_SERVICE_ERROR';
-    e.status = 502;
-    throw e;
+    console.error('[gemini] analyzeResume generateContent error:', err?.message);
+    throw wrapGeminiError(err, 'AI resume analysis failed');
   }
 
   const cleaned = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
@@ -241,7 +277,9 @@ export async function analyzeResume(resumeText, jdText, coverLetter, analysisTyp
     console.error('[gemini] analyzeResume JSON.parse failed; preview head/tail:', head, '|', tail);
     let retryCleaned = '';
     try {
-      const retry = await model.generateContent('Return ONLY raw JSON no markdown:\n' + prompt);
+      const retry = await generateContentWithFallback((model) =>
+        model.generateContent('Return ONLY raw JSON no markdown:\n' + prompt)
+      );
       retryCleaned = retry.response.text().trim()
         .replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
       return JSON.parse(retryCleaned);
@@ -281,7 +319,6 @@ const INTERVIEW_FEEDBACK_SCHEMA = `{
  * @param {string} jobRole         e.g. 'Backend Developer'
  */
 export async function generateInterviewFeedback(transcriptText, questionText, jobRole) {
-  const model  = getModel();
   const prompt =
     `You are an expert interview coach evaluating a candidate's answer for a ${jobRole} role.\n` +
     `Question: ${questionText}\n` +
@@ -291,13 +328,12 @@ export async function generateInterviewFeedback(transcriptText, questionText, jo
 
   let rawText;
   try {
-    const result = await model.generateContent(prompt);
+    const result = await generateContentWithFallback((model) =>
+      model.generateContent(prompt)
+    );
     rawText = result.response.text().trim();
   } catch (err) {
-    const e  = new Error('AI interview feedback service failed');
-    e.code   = 'AI_SERVICE_ERROR';
-    e.status = 502;
-    throw e;
+    throw wrapGeminiError(err, 'AI interview feedback service failed');
   }
 
   const cleaned = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
@@ -306,7 +342,9 @@ export async function generateInterviewFeedback(transcriptText, questionText, jo
     return JSON.parse(cleaned);
   } catch {
     try {
-      const retry  = await model.generateContent('Return ONLY raw JSON no markdown:\n' + prompt);
+      const retry = await generateContentWithFallback((model) =>
+        model.generateContent('Return ONLY raw JSON no markdown:\n' + prompt)
+      );
       const raw2   = retry.response.text().trim()
         .replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
       return JSON.parse(raw2);
@@ -333,7 +371,6 @@ const INTERVIEW_QUESTIONS_SCHEMA = `[
  * @returns {{ questions: Array<{ question, difficulty, category }> }}
  */
 export async function generateInterviewQuestions(role, round, difficulty) {
-  const model  = getModel();
   const prompt =
     `You are an expert technical recruiter. Generate 12 realistic interview questions for a ${role} candidate.\n` +
     `Round type: ${round}\nDifficulty level: ${difficulty}\n` +
@@ -343,13 +380,12 @@ export async function generateInterviewQuestions(role, round, difficulty) {
 
   let rawText;
   try {
-    const result = await model.generateContent(prompt);
+    const result = await generateContentWithFallback((model) =>
+      model.generateContent(prompt)
+    );
     rawText = result.response.text().trim();
   } catch (err) {
-    const e  = new Error('AI question generation failed');
-    e.code   = 'AI_SERVICE_ERROR';
-    e.status = 502;
-    throw e;
+    throw wrapGeminiError(err, 'AI question generation failed');
   }
 
   const cleaned = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
@@ -359,7 +395,9 @@ export async function generateInterviewQuestions(role, round, difficulty) {
     return { questions };
   } catch {
     try {
-      const retry  = await model.generateContent('Return ONLY raw JSON array no markdown:\n' + prompt);
+      const retry = await generateContentWithFallback((model) =>
+        model.generateContent('Return ONLY raw JSON array no markdown:\n' + prompt)
+      );
       const raw2   = retry.response.text().trim()
         .replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
       return { questions: JSON.parse(raw2) };
@@ -386,19 +424,17 @@ const COMPARE_SCHEMA = `{
  * @param {string} transcribedText
  */
 export async function compareTexts(originalText, transcribedText) {
-  const model  = getModel();
   const prompt =
     `Compare the original text with the transcribed text and return ONLY a valid JSON object — no markdown, no backticks, no explanation.\n\nOriginal: ${originalText}\nTranscribed: ${transcribedText}\n\nSchema:\n${COMPARE_SCHEMA}`;
 
   let rawText;
   try {
-    const result = await model.generateContent(prompt);
+    const result = await generateContentWithFallback((model) =>
+      model.generateContent(prompt)
+    );
     rawText = result.response.text().trim();
   } catch (err) {
-    const e  = new Error('AI comparison service failed');
-    e.code   = 'AI_SERVICE_ERROR';
-    e.status = 502;
-    throw e;
+    throw wrapGeminiError(err, 'AI comparison service failed');
   }
 
   const cleaned = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
@@ -407,8 +443,8 @@ export async function compareTexts(originalText, transcribedText) {
     return JSON.parse(cleaned);
   } catch {
     try {
-      const retry = await model.generateContent(
-        'Return ONLY raw JSON no markdown:\n' + prompt
+      const retry = await generateContentWithFallback((model) =>
+        model.generateContent('Return ONLY raw JSON no markdown:\n' + prompt)
       );
       const raw2  = retry.response.text().trim()
         .replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();

@@ -33,8 +33,10 @@ All variables read by the Kikooai backend, grouped by service. Copy `.env.exampl
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `GEMINI_API_KEY` | **Yes** | — | Google Generative AI API key. Used by `src/services/geminiService.js` for all AI features (resume analysis, transcription, interview prep). |
-| `GEMINI_MODEL` | No | `gemini-2.0-flash` | Override the Gemini model name (e.g. `gemini-1.5-pro`). Takes precedence over `AI_MODEL`. |
-| `AI_MODEL` | No | `gemini-2.0-flash` | Legacy alias for `GEMINI_MODEL`. Checked if `GEMINI_MODEL` is unset. |
+| `GEMINI_MODEL` | No | `gemini-2.5-flash` | Primary Gemini model for transcription, analysis, resumes, etc. Takes precedence over `AI_MODEL`. |
+| `GEMINI_MODEL_FALLBACK` | No | `gemini-1.5-flash,gemini-2.0-flash` | Comma-separated fallbacks if the primary hits 429 / quota (paid key must have billing enabled in [Google AI Studio](https://aistudio.google.com)). |
+| `GEMINI_EMBEDDING_MODEL` | No | `gemini-embedding-001` | Embedding model for Contextooo word ranking (`POST /games/contextooo/rank`). Replaces deprecated `text-embedding-004`. |
+| `AI_MODEL` | No | `gemini-2.5-flash` | Legacy alias for `GEMINI_MODEL`. Checked if `GEMINI_MODEL` is unset. |
 | `AI_API_KEY` | No | — | Legacy alias for `GEMINI_API_KEY`. Not actively used — set `GEMINI_API_KEY` instead. |
 
 ---

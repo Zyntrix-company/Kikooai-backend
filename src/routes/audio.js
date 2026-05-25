@@ -7,6 +7,7 @@ import { success, fail } from '../utils/response.js';
 import * as cloudinaryService from '../services/cloudinaryService.js';
 import { jobQueue } from '../jobs/JobQueue.js';
 import { transcriptionJobHandler } from '../jobs/transcriptionJob.js';
+import { inferFailureCodeFromMessage } from '../utils/resumeReportFailure.js';
 
 const router = Router();
 
@@ -176,13 +177,18 @@ router.get('/jobs/:job_id/status', auth, async (req, res, next) => {
       return fail(res, 'Job not found', 'JOB_NOT_FOUND', 404);
     }
 
+    const failureCode = job.error_code
+      || (job.error_message && job.status === 'failed'
+        ? inferFailureCodeFromMessage(job.error_message)
+        : null);
+
     return success(res, {
       id:            job.id,
       type:          job.type,
       status:        job.status,
       progress_pct:  job.progress_pct,
       error_message: job.error_message,
-      error_code:    job.error_code,
+      error_code:    failureCode,
       updated_at:    job.updated_at,
     });
   } catch (err) {
