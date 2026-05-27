@@ -32,6 +32,11 @@ describe('Interview', () => {
     assert.equal(res.status, 401);
   });
 
+  it('POST /interview/live/start → 401 without token', async () => {
+    const res = await request(app).post(`${BASE}/interview/live/start`).send({});
+    assert.equal(res.status, 401);
+  });
+
   // ── GET /interview/config ───────────────────────────────────────────────────
 
   it('GET /interview/config → 200 with config object', async () => {
@@ -41,6 +46,48 @@ describe('Interview', () => {
 
     assert.equal(res.status, 200);
     assert.ok(res.body.data, 'Missing data in response');
+    assert.equal(res.body.data.gemini_api_key, undefined);
+    assert.equal(res.body.data.live_transport, 'livekit');
+    assert.ok(res.body.data.livekit_url);
+  });
+
+  // ── POST /interview/live/start ─────────────────────────────────────────────
+
+  it('POST /interview/live/start → 201 with scoped LiveKit token', async () => {
+    const res = await request(app)
+      .post(`${BASE}/interview/live/start`)
+      .set(bearer(testUser.accessToken))
+      .send({
+        job_role:      'Backend Engineer',
+        difficulty:    'medium',
+        voice:         'emma',
+        duration_mins: 20,
+        questions: [
+          { question_text: 'Explain how you would design a scalable notification service.' },
+        ],
+      });
+
+    assert.equal(res.status, 201, `Expected 201, got ${res.status}: ${JSON.stringify(res.body)}`);
+    assert.ok(res.body.data.room_id);
+    assert.ok(res.body.data.livekit_url);
+    assert.ok(res.body.data.livekit_token);
+    assert.ok(res.body.data.participant_identity);
+    assert.equal(res.body.data.status, 'live');
+    assert.equal(res.body.data.agent.status, 'pending');
+
+    const status = await request(app)
+      .get(`${BASE}/interview/live/${res.body.data.room_id}/status`)
+      .set(bearer(testUser.accessToken));
+
+    assert.equal(status.status, 200);
+    assert.equal(status.body.data.status, 'live');
+
+    const ended = await request(app)
+      .post(`${BASE}/interview/live/${res.body.data.room_id}/end`)
+      .set(bearer(testUser.accessToken));
+
+    assert.equal(ended.status, 200);
+    assert.equal(ended.body.data.status, 'processing');
   });
 
   // ── GET /interview/questions ────────────────────────────────────────────────

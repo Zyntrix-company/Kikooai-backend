@@ -18,6 +18,7 @@ Production-ready REST API for **KikooAI** — an AI-powered English learning, in
 | File/Audio storage | Cloudinary v2 (client uploads directly — no proxy) |
 | AI | Google Gemini 2.0 Flash (generation) + `gemini-embedding-001` (Contextooo semantic similarity) |
 | Background jobs | In-process `JobQueue` (setInterval — see `docs/JOBS.md` for Bull+Redis upgrade path) |
+| Live interview media | LiveKit WebRTC rooms + server-side Gemini Live agent dispatch |
 | PDF generation | pdfkit (contest certificates) |
 | Rate limiting | express-rate-limit |
 
@@ -180,6 +181,11 @@ See [`docs/ENV.md`](./docs/ENV.md) for the full table. Quick reference:
 | `CLOUDINARY_API_SECRET` | ✅ | Cloudinary API secret |
 | `GEMINI_API_KEY` | ✅ | Google AI Studio API key |
 | `GEMINI_MODEL` | — | Gemini model (default: `gemini-2.0-flash`) |
+| `LIVEKIT_URL` | ✅ for live interviews | LiveKit WebRTC URL returned to clients |
+| `LIVEKIT_API_KEY` | ✅ for live interviews | LiveKit server API key |
+| `LIVEKIT_API_SECRET` | ✅ for live interviews | LiveKit server API secret |
+| `LIVE_INTERVIEW_AGENT_SECRET` | ✅ for live agent callbacks | Shared secret for internal worker callbacks |
+| `LIVE_INTERVIEW_AGENT_WEBHOOK_URL` | — | Optional dispatch URL for an external LiveKit/Gemini worker |
 | `GOOGLE_CLIENT_ID` | ✅ | Web OAuth client ID from Google Cloud Console (for mobile ID token verification) |
 | `APP_BASE_URL` | — | Public backend URL — used for contest share links |
 | `AUDIO_RETENTION_DAYS` | — | Days before audio archival (default: `90`) |
@@ -317,7 +323,10 @@ All routes 🔒.
 
 | Method | Endpoint | Description |
 |---|---|---|
-| GET | `/api/v1/interview/config` | Gemini credentials for client-side Gemini Live session. |
+| GET | `/api/v1/interview/config` | Non-secret live interview metadata. Gemini credentials are not returned to clients. |
+| POST | `/api/v1/interview/live/start` | Create a LiveKit WebRTC room and return scoped `livekit_token`, `livekit_url`, `room_id`, and AI agent status. |
+| POST | `/api/v1/interview/live/:id/end` | Mark a live interview ended while the agent finalizes transcript/report. |
+| GET | `/api/v1/interview/live/:id/status` | Poll live room status, agent status, and result readiness. |
 | GET | `/api/v1/interview/questions?role=&round=&difficulty=` | 12 AI-generated questions (cached 1h per key). |
 | POST | `/api/v1/interview/rooms/create` | Create room. Body: `{ job_role, company?, difficulty?, duration_mins?, questions? }` |
 | POST | `/api/v1/interview/rooms/:id/record/start` | Mark room as recording. |
@@ -326,6 +335,8 @@ All routes 🔒.
 | POST | `/api/v1/interview/rooms/:id/save-report` | Save client-generated Gemini Live report. Body: `{ transcript, report }` |
 | GET | `/api/v1/interview/rooms` | List 20 most recent rooms. |
 | POST | `/api/v1/interview/questions/evaluate` | Evaluate any question+answer immediately. Body: `{ question_text, answer_text?, audio_id?, job_role? }` |
+
+**Live frontend flow:** call `/interview/live/start`, join the returned LiveKit room from Flutter via WebRTC, publish microphone audio, and let the server-side AI participant bridge the conversation to Gemini Live. When the user ends, call `/interview/live/:id/end` and poll `/interview/live/:id/status` or `/interview/rooms/:id/result`.
 
 **Job listings:**
 

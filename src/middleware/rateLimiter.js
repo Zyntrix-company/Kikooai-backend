@@ -42,3 +42,16 @@ export const scoringLimiter = rateLimit({
   legacyHeaders:    false,
   message: { success: false, error: 'Too many scoring requests', code: 'RATE_LIMITED' },
 });
+
+/**
+ * Live interview session creation: 10 sessions per 15 minutes per IP.
+ * Protects LiveKit/Gemini realtime infrastructure from burst abuse.
+ */
+export const liveInterviewLimiter = rateLimit({
+  windowMs:         15 * 60 * 1000,
+  max:              10,
+  skip,
+  standardHeaders:  true,
+  legacyHeaders:    false,
+  message: { success: false, error: 'Too many live interview requests', code: 'RATE_LIMITED' },
+});

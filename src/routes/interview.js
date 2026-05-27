@@ -5,6 +5,7 @@ import auth from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { success, fail } from '../utils/response.js';
 import * as interviewService from '../services/interviewService.js';
+import { completeLiveInterview, markAgentJoined } from '../workers/liveInterviewAgent.js';
 
 const router = Router();
 
@@ -35,6 +36,26 @@ const createRoomSchema = Joi.object({
   ).max(20).optional(),
 });
 
+const liveStartSchema = Joi.object({
+  duration_mins:  Joi.number().min(1).max(120).default(30),
+  question_count: Joi.number().min(1).max(20).optional(),
+  difficulty:     Joi.string().valid('easy', 'medium', 'hard').default('medium'),
+  job_role:       Joi.string().max(120).optional(),
+  company:        Joi.string().max(120).optional().allow(''),
+  voice:          Joi.string().valid('emma', 'john').default('emma'),
+  candidate_name: Joi.string().max(120).optional().allow(''),
+  questions:      Joi.array().items(
+    Joi.object({ question_text: Joi.string().required() })
+  ).max(20).optional(),
+});
+
+const agentCompleteSchema = Joi.object({
+  transcript: Joi.array().items(
+    Joi.object({ role: Joi.string().required(), text: Joi.string().required() })
+  ).default([]),
+  report: Joi.object().allow(null).default(null),
+});
+
 const stopRecordingSchema = Joi.object({
   audio_id: Joi.string().uuid().required(),
 });
@@ -45,6 +66,20 @@ const evaluateSchema = Joi.object({
   audio_id:      Joi.string().uuid().optional(),
   job_role:      Joi.string().optional(),
 });
+
+function requireAgentSecret(req, res, next) {
+  const expected = process.env.LIVE_INTERVIEW_AGENT_SECRET;
+  if (!expected) {
+    return fail(res, 'Live interview agent secret is not configured', 'AGENT_SECRET_NOT_CONFIGURED', 503);
+  }
+
+  const actual = (req.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  if (actual !== expected) {
+    return fail(res, 'Invalid live interview agent credentials', 'AGENT_UNAUTHORIZED', 401);
+  }
+
+  next();
+}
 
 // ─── GET /interview/config ────────────────────────────────────────────────────
 // Returns Gemini API key + voice map so the client can open a Gemini Live session.
@@ -71,6 +106,73 @@ router.get('/interview/questions', auth, async (req, res, next) => {
     next(err);
   }
 });
+
+// ─── POST /interview/live/start ───────────────────────────────────────────────
+// Creates a LiveKit-backed interview room and returns a scoped WebRTC token.
+
+router.post('/interview/live/start', auth, validate(liveStartSchema), async (req, res, next) => {
+  try {
+    const result = await interviewService.startLiveInterview(req.user.id, req.body);
+    return success(res, result, 201);
+  } catch (err) {
+    if (err.code === 'LIVEKIT_NOT_CONFIGURED') return fail(res, err.message, err.code, 503);
+    next(err);
+  }
+});
+
+// ─── POST /interview/live/:room_id/end ────────────────────────────────────────
+// Marks the live session as ended while the agent finalizes transcript/report.
+
+router.post('/interview/live/:room_id/end', auth, async (req, res, next) => {
+  try {
+    const result = await interviewService.endLiveInterview(req.params.room_id, req.user.id);
+    return success(res, result);
+  } catch (err) {
+    if (err.code === 'ROOM_NOT_FOUND') return fail(res, err.message, err.code, 404);
+    next(err);
+  }
+});
+
+// ─── GET /interview/live/:room_id/status ──────────────────────────────────────
+
+router.get('/interview/live/:room_id/status', auth, async (req, res, next) => {
+  try {
+    const result = await interviewService.getLiveInterviewStatus(req.params.room_id, req.user.id);
+    return success(res, result);
+  } catch (err) {
+    if (err.code === 'ROOM_NOT_FOUND') return fail(res, err.message, err.code, 404);
+    next(err);
+  }
+});
+
+// ─── POST /interview/live/:room_id/agent/joined ───────────────────────────────
+// Internal callback used by the LiveKit/Gemini media worker.
+
+router.post('/interview/live/:room_id/agent/joined', requireAgentSecret, async (req, res, next) => {
+  try {
+    await markAgentJoined(req.params.room_id);
+    return success(res, { room_id: req.params.room_id, agent_status: 'joined' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /interview/live/:room_id/agent/complete ─────────────────────────────
+// Internal callback for final transcript/report persistence from the media worker.
+
+router.post(
+  '/interview/live/:room_id/agent/complete',
+  requireAgentSecret,
+  validate(agentCompleteSchema),
+  async (req, res, next) => {
+    try {
+      await completeLiveInterview(req.params.room_id, req.body.transcript, req.body.report);
+      return success(res, { room_id: req.params.room_id, status: 'done', agent_status: 'completed' });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 // ─── POST /interview/rooms/:room_id/save-report ───────────────────────────────
 // Client calls this after the live session ends with the full transcript + report.

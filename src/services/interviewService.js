@@ -1,7 +1,9 @@
 import pool from '../db/pool.js';
 import * as geminiService from './geminiService.js';
+import * as livekitService from './livekitService.js';
 import { jobQueue } from '../jobs/JobQueue.js';
 import { interviewJobHandler } from '../jobs/interviewJob.js';
+import { dispatchLiveInterviewAgent } from '../workers/liveInterviewAgent.js';
 
 function notFound(msg, code) {
   return Object.assign(new Error(msg), { status: 404, code });
@@ -14,19 +16,97 @@ function badRequest(msg, code) {
 // ─── Interview Config ─────────────────────────────────────────────────────────
 
 /**
- * Return Gemini credentials + voice map so the client can connect to Gemini Live.
- * Gated behind JWT auth — key never hits the frontend env.
+ * Return public interview config. Gemini credentials stay server-side; live
+ * clients should call POST /interview/live/start to receive a scoped LiveKit token.
  */
 export function getConfig() {
   return {
-    gemini_api_key: process.env.GEMINI_API_KEY,
-    live_model:     'gemini-2.5-flash-native-audio-preview-09-2025',
-    analysis_model: 'gemini-2.5-flash-preview-05-20',
+    live_transport: 'livekit',
+    live_model:     process.env.GEMINI_LIVE_MODEL || 'gemini-2.5-flash-native-audio-preview-09-2025',
+    analysis_model: process.env.GEMINI_ANALYSIS_MODEL || 'gemini-2.5-flash-preview-05-20',
+    livekit_url:    livekitService.getLiveKitUrl(),
     voices: {
       emma: 'Kore',
       john: 'Puck',
     },
   };
+}
+
+function liveRoomName(roomId) {
+  return `interview_${roomId}`;
+}
+
+function participantIdentity(userId, roomId) {
+  return `candidate_${userId}_${roomId}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+export async function startLiveInterview(userId, settings) {
+  const { rows } = await pool.query(
+    `INSERT INTO interview_rooms (
+       host_id, settings, status, provider, agent_status, live_started_at, start_ts
+     )
+     VALUES ($1, $2, 'live', 'livekit', 'pending', now(), now())
+     RETURNING id, settings, status, created_at`,
+    [userId, JSON.stringify(settings)]
+  );
+
+  const room = rows[0];
+  const roomName = liveRoomName(room.id);
+  const identity = participantIdentity(userId, room.id);
+
+  try {
+    await livekitService.ensureRoom(roomName, {
+      room_id: room.id,
+      user_id: userId,
+      type: 'live_interview',
+    });
+
+    const { token, expires_at: expiresAt } = await livekitService.createParticipantToken({
+      roomName,
+      identity,
+      name: settings.candidate_name || 'Candidate',
+      metadata: {
+        room_id: room.id,
+        user_id: userId,
+        role: 'candidate',
+      },
+    });
+
+    await pool.query(
+      `UPDATE interview_rooms
+       SET provider_room_name = $1
+       WHERE id = $2`,
+      [roomName, room.id]
+    );
+
+    const agent = await dispatchLiveInterviewAgent({
+      roomId: room.id,
+      roomName,
+      settings,
+    });
+
+    return {
+      room_id: room.id,
+      livekit_url: livekitService.getLiveKitUrl(),
+      livekit_token: token,
+      participant_identity: identity,
+      provider_room_name: roomName,
+      expires_at: expiresAt,
+      status: 'live',
+      agent,
+      live_model: process.env.GEMINI_LIVE_MODEL || 'gemini-2.5-flash-native-audio-preview-09-2025',
+      analysis_model: process.env.GEMINI_ANALYSIS_MODEL || 'gemini-2.5-flash-preview-05-20',
+      voice: settings.voice || 'emma',
+    };
+  } catch (err) {
+    await pool.query(
+      `UPDATE interview_rooms
+       SET status = 'failed', agent_status = 'failed', result_json = $1
+       WHERE id = $2`,
+      [JSON.stringify({ error: err.message, code: err.code || 'LIVE_START_FAILED' }), room.id]
+    ).catch(() => {});
+    throw err;
+  }
 }
 
 // ─── Interview Question Cache ─────────────────────────────────────────────────
@@ -71,12 +151,71 @@ export async function saveReport(roomId, userId, transcript, report) {
 
   await pool.query(
     `UPDATE interview_rooms
-     SET status = 'done', end_ts = COALESCE(end_ts, now()), result_json = $1
-     WHERE id = $2`,
-    [JSON.stringify({ transcript, report }), roomId]
+     SET status = 'done',
+         agent_status = CASE WHEN provider = 'livekit' THEN 'completed' ELSE agent_status END,
+         live_ended_at = COALESCE(live_ended_at, now()),
+         end_ts = COALESCE(end_ts, now()),
+         transcript_json = $1,
+         result_json = $2
+     WHERE id = $3`,
+    [JSON.stringify(transcript), JSON.stringify({ transcript, report }), roomId]
   );
 
   return { room_id: roomId, status: 'done' };
+}
+
+export async function endLiveInterview(roomId, userId) {
+  const { rows } = await pool.query(
+    'SELECT id, status FROM interview_rooms WHERE id = $1 AND host_id = $2',
+    [roomId, userId]
+  );
+  if (!rows[0]) throw notFound('Room not found', 'ROOM_NOT_FOUND');
+
+  const currentStatus = rows[0].status;
+  if (currentStatus === 'done' || currentStatus === 'failed') {
+    return { room_id: roomId, status: currentStatus };
+  }
+
+  const { rows: updated } = await pool.query(
+    `UPDATE interview_rooms
+     SET status = 'processing',
+         live_ended_at = COALESCE(live_ended_at, now()),
+         end_ts = COALESCE(end_ts, now())
+     WHERE id = $1
+     RETURNING id, status, agent_status, live_ended_at`,
+    [roomId]
+  );
+
+  return {
+    room_id: updated[0].id,
+    status: updated[0].status,
+    agent_status: updated[0].agent_status,
+    live_ended_at: updated[0].live_ended_at,
+    message: 'Live interview ended. Waiting for transcript/report from the interview agent.',
+  };
+}
+
+export async function getLiveInterviewStatus(roomId, userId) {
+  const { rows } = await pool.query(
+    `SELECT id, status, agent_status, provider, provider_room_name,
+            live_started_at, live_ended_at, result_json
+     FROM interview_rooms
+     WHERE id = $1 AND host_id = $2`,
+    [roomId, userId]
+  );
+  if (!rows[0]) throw notFound('Room not found', 'ROOM_NOT_FOUND');
+
+  const row = rows[0];
+  return {
+    room_id: row.id,
+    status: row.status,
+    agent_status: row.agent_status,
+    provider: row.provider,
+    provider_room_name: row.provider_room_name,
+    live_started_at: row.live_started_at,
+    live_ended_at: row.live_ended_at,
+    has_result: Boolean(row.result_json),
+  };
 }
 
 export async function createRoom(userId, settings) {

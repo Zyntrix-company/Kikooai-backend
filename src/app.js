@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import pool from './db/pool.js';
 import errorHandler from './middleware/errorHandler.js';
-import { authLimiter, uploadLimiter, scoringLimiter } from './middleware/rateLimiter.js';
+import { authLimiter, uploadLimiter, scoringLimiter, liveInterviewLimiter } from './middleware/rateLimiter.js';
 import authRouter from './routes/auth.js';
 import exercisesRouter from './routes/exercises.js';
 import audioRouter from './routes/audio.js';
@@ -31,6 +31,7 @@ app.use('/api/v1/audio/upload-init',   uploadLimiter);
 app.use('/api/v1/resumes/upload-init', uploadLimiter);
 app.use('/api/v1/exercises',           scoringLimiter);
 app.use('/api/v1/games',               scoringLimiter);
+app.use('/api/v1/interview/live/start', liveInterviewLimiter);
 
 // Required env vars grouped by service
 const REQUIRED_ENV = {
@@ -38,6 +39,7 @@ const REQUIRED_ENV = {
   cloudinary: ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'],
   gemini:     ['GEMINI_API_KEY'],
   google:     ['GOOGLE_CLIENT_ID'],
+  livekit:    ['LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET'],
 };
 
 // Health check — checks DB connectivity + env var completeness

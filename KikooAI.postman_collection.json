@@ -1883,7 +1883,7 @@
     },
     {
       "name": "Interview",
-      "description": "Mock interview rooms with AI-scored per-question feedback.\n\n**Full flow:**\n`POST /interview/rooms/create` → record audio via audio pipeline → `POST /rooms/:id/record/start` → `POST /rooms/:id/record/stop` with audio_id → poll `/jobs/:job_id/status` → `GET /rooms/:id/result`\n\n**Quick evaluate (no room):**\n`POST /interview/questions/evaluate` with question_text + answer_text",
+      "description": "Mock interview rooms with AI-scored per-question feedback.\n\n**Live WebRTC flow:**\n`POST /interview/live/start` → Flutter joins returned LiveKit room → AI agent bridges LiveKit audio to Gemini Live → `POST /interview/live/:room_id/end` → poll `/interview/live/:room_id/status` or `GET /rooms/:id/result`.\n\n**Recorded flow:**\n`POST /interview/rooms/create` → record audio via audio pipeline → `POST /rooms/:id/record/start` → `POST /rooms/:id/record/stop` with audio_id → poll `/jobs/:job_id/status` → `GET /rooms/:id/result`\n\n**Quick evaluate (no room):**\n`POST /interview/questions/evaluate` with question_text + answer_text",
       "item": [
         {
           "name": "Get Interview Config",
@@ -1896,7 +1896,8 @@
                   "const j = pm.response.json();",
                   "if (j.success) {",
                   "  pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
-                  "  pm.test(\"Has API key\", () => pm.expect(j.data.gemini_api_key).to.be.a(\"string\"));",
+                  "  pm.test(\"Does not expose Gemini key\", () => pm.expect(j.data.gemini_api_key).to.be.undefined);",
+                  "  pm.test(\"Uses LiveKit transport\", () => pm.expect(j.data.live_transport).to.equal(\"livekit\"));",
                   "  pm.test(\"Has voices\", () => pm.expect(j.data.voices).to.have.property(\"emma\"));",
                   "}"
                 ]
@@ -1923,7 +1924,7 @@
                 "config"
               ]
             },
-            "description": "Returns Gemini API key, live/analysis model IDs, and voice map (emma/john). JWT gated so the key is never stored in client env. Use this to initialise the Gemini Live session on the client."
+            "description": "Returns non-secret live interview metadata: LiveKit transport URL, live/analysis model IDs, and voice map (emma/john). Gemini credentials stay server-side; use POST /interview/live/start to receive a scoped LiveKit WebRTC token."
           },
           "response": [
             {
@@ -1937,9 +1938,136 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"gemini_api_key\": \"AIza...\",\n    \"live_model\": \"gemini-2.5-flash-native-audio-preview-09-2025\",\n    \"analysis_model\": \"gemini-2.5-flash-preview-05-20\",\n    \"voices\": {\n      \"emma\": \"Kore\",\n      \"john\": \"Puck\"\n    }\n  }\n}"
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"live_transport\": \"livekit\",\n    \"live_model\": \"gemini-2.5-flash-native-audio-preview-09-2025\",\n    \"analysis_model\": \"gemini-2.5-flash-preview-05-20\",\n    \"livekit_url\": \"wss://your-project.livekit.cloud\",\n    \"voices\": {\n      \"emma\": \"Kore\",\n      \"john\": \"Puck\"\n    }\n  }\n}"
             }
           ]
+        },
+        {
+          "name": "Start Live Interview (WebRTC)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.success) {",
+                  "  pm.test(\"201 Created\", () => pm.response.to.have.status(201));",
+                  "  pm.test(\"Has LiveKit token\", () => pm.expect(j.data.livekit_token).to.be.a(\"string\"));",
+                  "  pm.test(\"Has room id\", () => pm.expect(j.data.room_id).to.be.a(\"string\"));",
+                  "  pm.collectionVariables.set(\"roomId\", j.data.room_id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"job_role\": \"Backend Developer\",\n  \"difficulty\": \"medium\",\n  \"voice\": \"emma\",\n  \"duration_mins\": 30,\n  \"questions\": [\n    {\n      \"question_text\": \"Explain how you would design a scalable notification service.\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/interview/live/start",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "interview",
+                "live",
+                "start"
+              ]
+            },
+            "description": "Creates a LiveKit-backed live interview room and returns a short-lived WebRTC token. The Flutter app joins the returned LiveKit room; Gemini credentials remain on the backend/agent side."
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"room_id\": \"uuid\",\n    \"livekit_url\": \"wss://your-project.livekit.cloud\",\n    \"livekit_token\": \"eyJ...\",\n    \"participant_identity\": \"candidate_user_room\",\n    \"provider_room_name\": \"interview_uuid\",\n    \"expires_at\": \"2026-05-27T16:30:00.000Z\",\n    \"status\": \"live\",\n    \"agent\": {\n      \"identity\": \"ai-interviewer\",\n      \"status\": \"pending\"\n    },\n    \"voice\": \"emma\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "End Live Interview",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/interview/live/{{roomId}}/end",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "interview",
+                "live",
+                "{{roomId}}",
+                "end"
+              ]
+            },
+            "description": "Marks the LiveKit interview ended. The media worker should finalize transcript/report through the internal agent completion callback."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Live Interview Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/interview/live/{{roomId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "interview",
+                "live",
+                "{{roomId}}",
+                "status"
+              ]
+            },
+            "description": "Returns live session lifecycle and agent status for the Flutter UI."
+          },
+          "response": []
         },
         {
           "name": "Get Interview Questions",

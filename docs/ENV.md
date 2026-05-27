@@ -35,9 +35,23 @@ All variables read by the Kikooai backend, grouped by service. Copy `.env.exampl
 | `GEMINI_API_KEY` | **Yes** | — | Google Generative AI API key. Used by `src/services/geminiService.js` for all AI features (resume analysis, transcription, interview prep). |
 | `GEMINI_MODEL` | No | `gemini-2.5-flash` | Primary Gemini model for transcription, analysis, resumes, etc. Takes precedence over `AI_MODEL`. |
 | `GEMINI_MODEL_FALLBACK` | No | `gemini-1.5-flash,gemini-2.0-flash` | Comma-separated fallbacks if the primary hits 429 / quota (paid key must have billing enabled in [Google AI Studio](https://aistudio.google.com)). |
+| `GEMINI_LIVE_MODEL` | No | `gemini-2.5-flash-native-audio-preview-09-2025` | Gemini Live model used by the server-side live interview agent. |
+| `GEMINI_ANALYSIS_MODEL` | No | `gemini-2.5-flash-preview-05-20` | Model metadata returned to clients for post-session interview analysis. |
 | `GEMINI_EMBEDDING_MODEL` | No | `gemini-embedding-001` | Embedding model for Contextooo word ranking (`POST /games/contextooo/rank`). Replaces deprecated `text-embedding-004`. |
 | `AI_MODEL` | No | `gemini-2.5-flash` | Legacy alias for `GEMINI_MODEL`. Checked if `GEMINI_MODEL` is unset. |
 | `AI_API_KEY` | No | — | Legacy alias for `GEMINI_API_KEY`. Not actively used — set `GEMINI_API_KEY` instead. |
+
+---
+
+## LiveKit / Live Interview
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `LIVEKIT_URL` | **Yes for live interviews** | — | LiveKit Cloud/self-hosted WebSocket URL returned to Flutter for WebRTC live interviews. |
+| `LIVEKIT_API_KEY` | **Yes for live interviews** | — | LiveKit server API key used only by the backend to create rooms and scoped participant tokens. |
+| `LIVEKIT_API_SECRET` | **Yes for live interviews** | — | LiveKit server API secret. Never expose this client-side. |
+| `LIVE_INTERVIEW_AGENT_SECRET` | **Yes for agent callbacks** | — | Shared bearer token used by the media worker when calling internal agent status/completion endpoints. |
+| `LIVE_INTERVIEW_AGENT_WEBHOOK_URL` | No | — | Optional URL for dispatching a separate LiveKit/Gemini media worker when a live interview starts. |
 
 ---
 
